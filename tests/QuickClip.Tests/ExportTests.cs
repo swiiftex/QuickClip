@@ -163,7 +163,7 @@ public sealed class ExportTests(MediaFixture media)
         Assert.All(outInfo.Audio, a => Assert.Equal("opus", a.Codec));
     }
 
-    public static TheoryData<string> Encoders => [.. VideoEncoders.All.Select(e => e.Id)];
+    public static TheoryData<string> Encoders => [.. VideoEncoders.All.Where(e => e.Export).Select(e => e.Id)];
 
     /// <summary>Runs every encoder this machine supports (GPU ones only if the hardware is present).</summary>
     [Theory]

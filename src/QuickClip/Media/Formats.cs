@@ -74,8 +74,8 @@ internal static class Containers
     }
 }
 
-/// <summary>A video encoder QuickClip knows how to drive.</summary>
-internal sealed record VideoEncoder(string Id, string Family, string Label, bool Hardware);
+/// <summary>A video encoder QuickClip knows how to drive. <paramref name="Export"/>: also offered for editor exports.</summary>
+internal sealed record VideoEncoder(string Id, string Family, string Label, bool Hardware, bool Export = true);
 
 internal static class VideoEncoders
 {
@@ -90,6 +90,8 @@ internal static class VideoEncoders
         new("hevc_qsv", "hevc", "H.265/HEVC · Intel GPU", true),
         new("libx265", "hevc", "H.265/HEVC · CPU (x265)", false),
         new("av1_nvenc", "av1", "AV1 · NVIDIA GPU", true),
+        new("av1_amf", "av1", "AV1 · AMD GPU", true),
+        new("av1_qsv", "av1", "AV1 · Intel GPU", true, Export: false),
         new("libsvtav1", "av1", "AV1 · CPU (SVT-AV1)", false),
         new("libvpx-vp9", "vp9", "VP9 · CPU", false),
     ];
@@ -111,7 +113,7 @@ internal static class VideoEncoders
             if (Deps.FFmpeg == null) return _available = result;
 
             var fi = new FileInfo(Deps.FFmpeg);
-            string cacheKey = $"{fi.FullName}|{fi.Length}|{fi.LastWriteTimeUtc.Ticks}";
+            string cacheKey = $"{fi.FullName}|{fi.Length}|{fi.LastWriteTimeUtc.Ticks}|{string.Join(",", All.Select(e => e.Id))}";
             var settings = AppSettings.Current;
             if (settings.EncoderCacheKey == cacheKey && settings.EncoderCache is { Count: > 0 })
                 return _available = new HashSet<string>(settings.EncoderCache);

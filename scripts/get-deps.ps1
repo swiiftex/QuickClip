@@ -31,8 +31,10 @@ function Save-Asset($asset) {
 
 try {
     # --- FFmpeg ----------------------------------------------------------------
+    # Binaries go next to the app; headers/import libs (same build) are for compiling the capture engine.
     $ffDir = Join-Path $deps 'ffmpeg'
-    if ($Force -or -not (Test-Path (Join-Path $ffDir 'ffmpeg.exe'))) {
+    $ffDev = Join-Path $deps 'ffmpeg-dev'
+    if ($Force -or -not (Test-Path (Join-Path $ffDir 'ffmpeg.exe')) -or -not (Test-Path (Join-Path $ffDev 'include\libavcodec\avcodec.h'))) {
         $asset = Get-ReleaseAssets 'BtbN/FFmpeg-Builds' |
             Where-Object { $_.name -match '^ffmpeg-n(\d+\.\d+)-latest-win64-gpl-shared-[\d.]+\.zip$' } |
             Sort-Object { [version]($_.name -replace '^ffmpeg-n(\d+\.\d+)-.*$', '$1') } -Descending |
@@ -52,9 +54,31 @@ try {
             Where-Object { $_.Name -ne 'ffplay.exe' } |
             Copy-Item -Destination $ffDir
         Copy-Item (Get-ChildItem -Path $out -Recurse -Filter LICENSE.txt | Select-Object -First 1).FullName (Join-Path $ffDir 'LICENSE.txt') -ErrorAction SilentlyContinue
-        Write-Host "FFmpeg -> $ffDir"
+
+        if (Test-Path $ffDev) { Remove-Item -Recurse -Force $ffDev }
+        New-Item -ItemType Directory -Force -Path $ffDev | Out-Null
+        Copy-Item (Join-Path $bin.Parent.FullName 'include') $ffDev -Recurse
+        Copy-Item (Join-Path $bin.Parent.FullName 'lib') $ffDev -Recurse
+        Write-Host "FFmpeg -> $ffDir (headers -> $ffDev)"
     } else {
         Write-Host 'FFmpeg already present (use -Force to update).'
+    }
+
+    # --- Inno Setup (compiler for the installer, from its NuGet package) ---------
+    $inno = Join-Path $deps 'innosetup'
+    if ($Force -or -not (Test-Path (Join-Path $inno 'ISCC.exe'))) {
+        $version = '6.7.3'
+        $package = Join-Path $tmp 'innosetup.zip'
+        Write-Host "Downloading Inno Setup $version..."
+        Invoke-WebRequest "https://api.nuget.org/v3-flatcontainer/tools.innosetup/$version/tools.innosetup.$version.nupkg" -OutFile $package
+        $out = Join-Path $tmp 'innosetup'
+        New-Item -ItemType Directory -Force -Path $out | Out-Null
+        tar -xf $package -C $out
+        if (Test-Path $inno) { Remove-Item -Recurse -Force $inno }
+        Copy-Item (Join-Path $out 'tools') $inno -Recurse
+        Write-Host "Inno Setup -> $inno"
+    } else {
+        Write-Host 'Inno Setup already present (use -Force to update).'
     }
 
     # --- libmpv ----------------------------------------------------------------
