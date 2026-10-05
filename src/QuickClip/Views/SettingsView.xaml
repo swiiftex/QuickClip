@@ -1,0 +1,196 @@
+<UserControl x:Class="QuickClip.Views.SettingsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <UserControl.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="/QuickClip;component/Themes/Styles.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+            <Style x:Key="Card" TargetType="Border">
+                <Setter Property="Background" Value="{StaticResource PanelBrush}" />
+                <Setter Property="CornerRadius" Value="8" />
+                <Setter Property="Padding" Value="20,8,20,18" />
+                <Setter Property="Margin" Value="0,0,0,14" />
+            </Style>
+            <Style x:Key="CardTitle" TargetType="TextBlock">
+                <Setter Property="FontSize" Value="16" />
+                <Setter Property="FontWeight" Value="SemiBold" />
+                <Setter Property="Margin" Value="0,10,0,4" />
+            </Style>
+            <Style x:Key="Row" TargetType="Grid">
+                <Setter Property="Margin" Value="0,10,0,0" />
+            </Style>
+        </ResourceDictionary>
+    </UserControl.Resources>
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel MaxWidth="760" Margin="28,22,28,28" HorizontalAlignment="Left">
+            <TextBlock Text="Settings" FontSize="24" FontWeight="SemiBold" Margin="0,0,0,16" />
+
+            <!-- Updates -->
+            <Border Style="{StaticResource Card}">
+                <StackPanel>
+                    <DockPanel Margin="0,10,0,0">
+                        <Button x:Name="CheckUpdatesButton" DockPanel.Dock="Right" Style="{StaticResource TextButton}" Margin="0" VerticalAlignment="Center"
+                                Click="CheckUpdates_Click">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE72C;" VerticalAlignment="Center" Margin="0,0,7,0" />
+                                <TextBlock Text="Check for updates" />
+                            </StackPanel>
+                        </Button>
+                        <StackPanel>
+                            <TextBlock Text="Updates" Style="{StaticResource CardTitle}" Margin="0,0,0,2" />
+                            <TextBlock x:Name="VersionText" Style="{StaticResource Hint}" />
+                        </StackPanel>
+                    </DockPanel>
+                    <TextBlock x:Name="UpdateStatusText" Margin="0,12,0,0" TextWrapping="Wrap" />
+                    <StackPanel x:Name="UpdateActions" Orientation="Horizontal" Margin="0,10,0,0" Visibility="Collapsed">
+                        <Button x:Name="InstallUpdateButton" Style="{DynamicResource AccentButtonStyle}" Padding="12,5" Focusable="False" Click="InstallUpdate_Click">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE896;" VerticalAlignment="Center" Margin="0,0,7,0" />
+                                <TextBlock Text="Install and restart" />
+                            </StackPanel>
+                        </Button>
+                        <Button Style="{StaticResource TextButton}" Content="What's new" Margin="8,0,0,0" Click="WhatsNew_Click" />
+                    </StackPanel>
+                    <ProgressBar x:Name="UpdateProgress" Height="6" Margin="0,12,0,0" Maximum="1" Visibility="Collapsed" />
+                    <CheckBox x:Name="AutoUpdateCheck" Content="Check for updates automatically when QuickClip starts" Margin="0,12,0,0"
+                              Checked="AutoUpdate_Changed" Unchecked="AutoUpdate_Changed" />
+                </StackPanel>
+            </Border>
+
+            <!-- Recording -->
+            <Border Style="{StaticResource Card}">
+                <StackPanel>
+                    <TextBlock Text="Instant replay" Style="{StaticResource CardTitle}" />
+                    <TextBlock Style="{StaticResource Hint}"
+                               Text="QuickClip keeps the last few minutes of your screen in memory; press the hotkey to save them as a clip. Nothing is written to disk until you do." />
+                    <CheckBox x:Name="RecordingCheck" Content="Keep recording in the background" Margin="0,10,0,0" Checked="Changed" Unchecked="Changed" />
+
+                    <Grid Style="{StaticResource Row}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="160" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Monitor" VerticalAlignment="Center" />
+                        <ComboBox x:Name="MonitorCombo" Grid.Column="1" SelectionChanged="Changed" />
+                    </Grid>
+
+                    <Grid Style="{StaticResource Row}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="160" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="150" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Clip length" VerticalAlignment="Center" />
+                        <Slider x:Name="BufferSlider" Grid.Column="1" Minimum="0" Maximum="10" TickFrequency="1" IsSnapToTickEnabled="True"
+                                TickPlacement="BottomRight" VerticalAlignment="Center" ValueChanged="Changed" Focusable="False" />
+                        <TextBlock x:Name="BufferText" Grid.Column="2" VerticalAlignment="Center" Margin="14,0,0,0" FontWeight="SemiBold" />
+                    </Grid>
+                    <TextBlock x:Name="RamText" Margin="160,4,0,0" Style="{StaticResource Hint}" />
+
+                    <Grid Style="{StaticResource Row}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="160" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="150" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Quality" VerticalAlignment="Center" />
+                        <ComboBox x:Name="QualityCombo" Grid.Column="1" SelectionChanged="Changed" />
+                        <TextBlock x:Name="BitrateText" Grid.Column="2" VerticalAlignment="Center" Margin="14,0,0,0" Style="{StaticResource Hint}" />
+                    </Grid>
+
+                    <Grid Style="{StaticResource Row}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="160" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="12" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Frame rate / resolution" VerticalAlignment="Center" />
+                        <ComboBox x:Name="FpsCombo" Grid.Column="1" SelectionChanged="Changed" />
+                        <ComboBox x:Name="ResolutionCombo" Grid.Column="3" SelectionChanged="Changed" />
+                    </Grid>
+
+                    <Grid Style="{StaticResource Row}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="160" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Encoder" VerticalAlignment="Center" />
+                        <ComboBox x:Name="EncoderCombo" Grid.Column="1" SelectionChanged="Changed" />
+                    </Grid>
+
+                    <CheckBox x:Name="CursorCheck" Content="Show the mouse pointer" Margin="160,12,0,0" Checked="Changed" Unchecked="Changed" />
+                    <TextBlock x:Name="RecorderStatus" Margin="0,12,0,0" Style="{StaticResource Hint}" />
+                </StackPanel>
+            </Border>
+
+            <!-- Audio -->
+            <Border Style="{StaticResource Card}">
+                <StackPanel>
+                    <TextBlock Text="Audio" Style="{StaticResource CardTitle}" />
+                    <TextBlock Style="{StaticResource Hint}"
+                               Text="Clips get a separate track for each source, named in the editor, so you can set their volumes or merge them when exporting." />
+                    <CheckBox x:Name="SplitChatCheck" Margin="0,12,0,0" Checked="Changed" Unchecked="Changed">
+                        <TextBlock Text="Put voice chat on its own track (Discord, TeamSpeak, Mumble, Teams, Zoom and more)" TextWrapping="Wrap" />
+                    </CheckBox>
+                    <TextBlock x:Name="ChatText" Margin="28,4,0,0" Style="{StaticResource Hint}" />
+
+                    <Grid Style="{StaticResource Row}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="160" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <CheckBox x:Name="MicCheck" Content="Microphone" VerticalAlignment="Center" Checked="Changed" Unchecked="Changed" />
+                        <ComboBox x:Name="MicCombo" Grid.Column="1" SelectionChanged="Changed" />
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <!-- Hotkey -->
+            <Border Style="{StaticResource Card}">
+                <StackPanel>
+                    <TextBlock Text="Hotkey" Style="{StaticResource CardTitle}" />
+                    <Grid Style="{StaticResource Row}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="160" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Save clip" VerticalAlignment="Center" />
+                        <Button x:Name="HotkeyButton" Grid.Column="1" MinWidth="200" Padding="12,6" Click="HotkeyButton_Click"
+                                PreviewKeyDown="HotkeyButton_PreviewKeyDown" LostKeyboardFocus="HotkeyButton_LostFocus"
+                                ToolTip="Click, then press the keys you want (Esc cancels)" />
+                        <TextBlock x:Name="HotkeyStatus" Grid.Column="2" Margin="14,0,0,0" VerticalAlignment="Center" Style="{StaticResource Hint}" />
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <!-- General -->
+            <Border Style="{StaticResource Card}">
+                <StackPanel>
+                    <TextBlock Text="General" Style="{StaticResource CardTitle}" />
+                    <CheckBox x:Name="StartupCheck" Content="Start QuickClip with Windows (in the tray)" Margin="0,10,0,0" Checked="Changed" Unchecked="Changed" />
+                    <CheckBox x:Name="MinTrayCheck" Content="Minimizing hides QuickClip to the tray" Margin="0,8,0,0" Checked="Changed" Unchecked="Changed" />
+                    <CheckBox x:Name="CloseTrayCheck" Content="Closing the window keeps QuickClip running in the tray" Margin="0,8,0,0" Checked="Changed" Unchecked="Changed" />
+                    <CheckBox x:Name="SoundCheck" Content="Play a sound when a clip is saved" Margin="0,8,0,0" Checked="Changed" Unchecked="Changed" />
+                    <CheckBox x:Name="ShellCheck" Margin="0,8,0,0" Checked="ShellCheck_Changed" Unchecked="ShellCheck_Changed">
+                        <TextBlock Text="Add &quot;Edit with QuickClip&quot; to the right-click menu of video and audio files" TextWrapping="Wrap" />
+                    </CheckBox>
+
+                    <Grid Style="{StaticResource Row}" Margin="0,16,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="160" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Clips folder" VerticalAlignment="Center" />
+                        <TextBox x:Name="FolderBox" Grid.Column="1" IsReadOnly="True" Style="{StaticResource CompactBox}" Padding="8,6" />
+                        <Button Grid.Column="2" Style="{StaticResource TextButton}" Content="Change…" Margin="8,0,0,0" Click="ChangeFolder_Click" />
+                    </Grid>
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

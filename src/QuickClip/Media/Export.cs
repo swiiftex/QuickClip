@@ -212,6 +212,12 @@ internal static class ExportBuilder
                     outArgs.AddRange(["-cq", $"{cq}", "-b:v", "0"]);
                 }
                 break;
+            case "av1_amf":
+                // AMF's AV1 quantiser runs 0-255 rather than 0-51.
+                outArgs.AddRange(["-quality", "quality"]);
+                if (!size) outArgs.AddRange(["-rc", "cqp", "-qp_i", $"{(q + 5) * 4}", "-qp_p", $"{(q + 7) * 4}"]);
+                else outArgs.AddRange(["-rc", "vbr_peak"]);
+                break;
             case "h264_amf":
             case "hevc_amf":
                 outArgs.AddRange(["-quality", "quality"]);

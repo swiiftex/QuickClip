@@ -35,7 +35,7 @@ internal static class ShellIntegration
     /// </summary>
     public const string MenuPackageFamily = "QuickClip.ContextMenu_qvamj0bx9jvkt";
 
-    /// <summary>True when install.ps1 registered the Windows 11 menu package for this user.</summary>
+    /// <summary>True when scripts\add-win11-menu.ps1 registered the Windows 11 menu package for this user.</summary>
     public static bool IsMenuPackageInstalled()
     {
         uint count = 0, length = 0;

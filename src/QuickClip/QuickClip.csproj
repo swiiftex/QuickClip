@@ -9,7 +9,7 @@
     <PlatformTarget>x64</PlatformTarget>
     <ApplicationIcon>Assets\QuickClip.ico</ApplicationIcon>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
-    <Version>1.0.0</Version>
+    <Version>0.3.0-beta</Version>
     <Product>QuickClip</Product>
     <!-- Fluent theme (ThemeMode) is still flagged as experimental. -->
     <NoWarn>$(NoWarn);WPF0001</NoWarn>
@@ -20,6 +20,24 @@
     <Resource Include="Assets\QuickClip.ico" />
     <InternalsVisibleTo Include="QuickClip.Tests" />
   </ItemGroup>
+
+  <!-- Native recording engine (C++), rebuilt when its sources change. Needs Visual Studio's C++ tools;
+       without them the app still builds, just without recording. -->
+  <PropertyGroup>
+    <CaptureEngineDir>$(MSBuildThisFileDirectory)..\QuickClip.Capture\</CaptureEngineDir>
+    <CaptureEngineDll>$(CaptureEngineDir)bin\QuickClipCapture.dll</CaptureEngineDll>
+  </PropertyGroup>
+  <ItemGroup>
+    <CaptureEngineSource Include="$(CaptureEngineDir)*.cpp;$(CaptureEngineDir)*.h" />
+  </ItemGroup>
+  <Target Name="BuildCaptureEngine" BeforeTargets="BeforeBuild" Inputs="@(CaptureEngineSource)" Outputs="$(CaptureEngineDll)">
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildThisFileDirectory)..\..\scripts\build-capture.ps1&quot;" ContinueOnError="true" />
+  </Target>
+  <Target Name="IncludeCaptureEngine" AfterTargets="BuildCaptureEngine">
+    <ItemGroup Condition="Exists('$(CaptureEngineDll)')">
+      <None Include="$(CaptureEngineDll)" Link="QuickClipCapture.dll" CopyToOutputDirectory="PreserveNewest" />
+    </ItemGroup>
+  </Target>
 
   <!-- Native dependencies fetched by scripts/get-deps.ps1 -->
   <ItemGroup>
