@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <!-- Ties the DLL to the sparse package identity; must match packaging/AppxManifest.xml -->
+  <msix xmlns="urn:schemas-microsoft-com:msix.v1"
+        publisher="CN=QuickClip Local"
+        packageName="QuickClip.ContextMenu"
+        applicationId="QuickClip" />
+</assembly>

@@ -1,0 +1,4 @@
+LIBRARY QuickClipShell
+EXPORTS
+    DllGetClassObject PRIVATE
+    DllCanUnloadNow PRIVATE

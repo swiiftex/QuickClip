@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/QuickClip/QuickClip.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/QuickClip.Tests/QuickClip.Tests.csproj" />
+  </Folder>
+</Solution>

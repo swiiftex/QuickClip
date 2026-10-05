@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <PlatformTarget>x64</PlatformTarget>
+    <ApplicationIcon>Assets\QuickClip.ico</ApplicationIcon>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <Version>1.0.0</Version>
+    <Product>QuickClip</Product>
+    <!-- Fluent theme (ThemeMode) is still flagged as experimental. -->
+    <NoWarn>$(NoWarn);WPF0001</NoWarn>
+    <DepsDir>$(MSBuildThisFileDirectory)..\..\deps\</DepsDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets\QuickClip.ico" />
+    <InternalsVisibleTo Include="QuickClip.Tests" />
+  </ItemGroup>
+
+  <!-- Native dependencies fetched by scripts/get-deps.ps1 -->
+  <ItemGroup>
+    <None Include="$(DepsDir)libmpv-2.dll" Link="libmpv-2.dll" CopyToOutputDirectory="PreserveNewest" Condition="Exists('$(DepsDir)libmpv-2.dll')" />
+    <None Include="$(DepsDir)ffmpeg\**\*" Link="ffmpeg\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>
