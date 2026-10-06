@@ -25,7 +25,8 @@ and lets you trim, crop and remix the audio tracks before sharing.
   ago each clip was made.
 - The **editor** previews video with every audio track playing at once, each at its own volume (0–200%), shows a
   waveform per track, trims frame-accurately, crops with aspect presets, and exports as a new file or over the
-  original. Tracks can be kept separate or merged into one.
+  original. Tracks can be kept separate or merged into one. The preview volume slider is QuickClip's own level in
+  the Windows volume mixer.
 - Opens practically anything FFmpeg reads; exports MP4, MKV, MOV, WebM, GIF, MP3, M4A, WAV, FLAC, Opus.
 - **Right-click → Edit with QuickClip** on video and audio files in Explorer.
 

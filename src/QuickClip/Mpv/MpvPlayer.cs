@@ -52,6 +52,9 @@ internal sealed class MpvPlayer : IDisposable
         SetOption("ytdl", "no");
         SetOption("background-color", "#000000");
         SetOption("demuxer-max-back-bytes", "200MiB");
+        // The volume mixer shows the audio stream under these (by default "<file> - mpv").
+        SetOption("audio-client-name", "QuickClip");
+        SetOption("title", "QuickClip");
         if (overrides != null)
             foreach (var (name, value) in overrides)
                 SetOption(name, value);
