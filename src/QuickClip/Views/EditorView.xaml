@@ -45,7 +45,7 @@
                         I / O — set in / out at the playhead<LineBreak />
                         Shift+I / Shift+O — jump to in / out<LineBreak />
                         Home / End — start / end of file<LineBreak />
-                        L — loop selection · C — crop on/off<LineBreak />
+                        L — loop selection · C — crop on/off · M — mute<LineBreak />
                         + / − / 0 — zoom timeline in / out / fit<LineBreak />
                         Mouse wheel on timeline — zoom · Shift+wheel — scroll<LineBreak />
                         Ctrl+E — export as new file · Ctrl+S — save over original
@@ -64,9 +64,18 @@
             <controls:VideoHost x:Name="Video" />
         </Border>
 
-        <!-- Transport -->
-        <DockPanel Grid.Row="2" Grid.Column="0" Margin="0,10,0,8">
-            <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" VerticalAlignment="Center">
+        <!-- Transport (the editing controls move to a second line when the window is too narrow for one) -->
+        <Grid x:Name="Transport" Grid.Row="2" Grid.Column="0" Margin="0,10,0,8" SizeChanged="Transport_SizeChanged">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+            <StackPanel x:Name="PlaybackControls" Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Left"
+                        SizeChanged="Transport_SizeChanged">
                 <Button Style="{StaticResource IconButton}" Content="&#xE892;" Click="GoStart_Click" ToolTip="Go to start (Home)" />
                 <Button Style="{StaticResource IconButton}" Content="&#xE76B;" Click="FrameBack_Click" ToolTip="Previous frame (←)" />
                 <Button x:Name="PlayButton" Style="{StaticResource IconButton}" Content="&#xE768;" Click="Play_Click" ToolTip="Play / pause (Space)" Padding="16,6" />
@@ -74,8 +83,12 @@
                 <Button Style="{StaticResource IconButton}" Content="&#xE893;" Click="GoEnd_Click" ToolTip="Go to end (End)" />
                 <TextBlock x:Name="TimeText" Margin="10,0,0,0" VerticalAlignment="Center" FontFamily="Consolas" FontSize="15" Text="0:00.000" />
                 <TextBlock x:Name="DurationText" VerticalAlignment="Center" FontFamily="Consolas" FontSize="13" Foreground="{StaticResource SubtleText}" Text=" / 0:00.000" />
+                <!-- QuickClip's level in the Windows volume mixer -->
+                <Button x:Name="MuteButton" Style="{StaticResource IconButton}" Content="&#xE995;" Margin="14,0,2,0" Click="Mute_Click" />
+                <Slider x:Name="PreviewVolumeSlider" Width="90" Minimum="0" Maximum="100" SmallChange="1" LargeChange="10" Focusable="False"
+                        IsMoveToPointEnabled="True" VerticalAlignment="Center" ValueChanged="PreviewVolume_Changed" PreviewMouseWheel="PreviewVolume_Wheel" />
             </StackPanel>
-            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+            <StackPanel x:Name="EditControls" Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Right">
                 <Button Style="{StaticResource TextButton}" Click="SetIn_Click" Content="Set in" ToolTip="Start the clip at the playhead (I)" />
                 <Button Style="{StaticResource TextButton}" Click="SetOut_Click" Content="Set out" ToolTip="End the clip at the playhead (O)" />
                 <ToggleButton x:Name="LoopToggle" Style="{StaticResource IconToggle}" Margin="8,0,12,0" Checked="Loop_Changed" Unchecked="Loop_Changed"
@@ -89,8 +102,7 @@
                 <Button Style="{StaticResource IconButton}" Content="&#xE9A6;" Click="ZoomFit_Click" ToolTip="Show the whole file (0)" />
                 <Button Style="{StaticResource IconButton}" Content="&#xE8A3;" Click="ZoomIn_Click" ToolTip="Zoom timeline in (+)" Margin="0" />
             </StackPanel>
-            <Grid />
-        </DockPanel>
+        </Grid>
 
         <!-- Timeline + audio tracks -->
         <Grid Grid.Row="3" Grid.Column="0">

@@ -33,6 +33,11 @@ public partial class MainWindow
             await OpenInEditorAsync(editorFile);
             await Task.Delay(3000);
             SaveVisual(Path.Combine(dir, "editor.png"));
+            double width = Width;
+            Width = MinWidth;
+            await Task.Delay(1000);
+            SaveVisual(Path.Combine(dir, "editor-narrow.png"));
+            Width = width;
         }
 
         var r = Recorder.Instance;
