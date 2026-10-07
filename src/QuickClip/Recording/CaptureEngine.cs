@@ -20,6 +20,7 @@ internal static class CaptureEngine
         public int BufferSeconds;
         public int CaptureCursor;
         public int SplitChat;
+        public int SplitMusic;
         public int MicEnabled;
         public IntPtr MicDeviceId;
     }
@@ -86,7 +87,7 @@ internal static class CaptureEngine
     }
 
     public static string? Start(string monitorDevice, int fps, int outWidth, int outHeight, string encoder, int videoKbps,
-        int audioKbps, int bufferSeconds, bool cursor, bool splitChat, bool mic, string? micDeviceId)
+        int audioKbps, int bufferSeconds, bool cursor, bool splitChat, bool splitMusic, bool mic, string? micDeviceId)
     {
         var strings = new List<IntPtr>();
         IntPtr Uni(string? s) { var p = s == null ? IntPtr.Zero : Marshal.StringToHGlobalUni(s); strings.Add(p); return p; }
@@ -104,6 +105,7 @@ internal static class CaptureEngine
                 BufferSeconds = bufferSeconds,
                 CaptureCursor = cursor ? 1 : 0,
                 SplitChat = splitChat ? 1 : 0,
+                SplitMusic = splitMusic ? 1 : 0,
                 MicEnabled = mic ? 1 : 0,
                 MicDeviceId = Uni(micDeviceId),
             };
@@ -119,7 +121,9 @@ internal static class CaptureEngine
 
     public static void Stop() => qc_stop();
 
-    public static void SetChatProcesses(IReadOnlyList<uint> pids) => qc_set_chat_processes([.. pids], pids.Count);
+    /// <summary>Which apps each track records; see <see cref="AudioRouting"/> for Desktop.</summary>
+    public static void SetAudioProcesses(AudioRouting.Desktop desktop, IReadOnlyList<uint> chat, IReadOnlyList<uint> music) =>
+        qc_set_audio_processes(desktop.Exclude, [.. desktop.Include], desktop.Include.Count, [.. chat], chat.Count, [.. music], music.Count);
 
     public static string? Save(string path, int seconds, string title)
     {
@@ -139,7 +143,8 @@ internal static class CaptureEngine
     [DllImport(Dll)] private static extern int qc_enum_microphones([Out] AudioDevice[] devices, int max);
     [DllImport(Dll, CharSet = CharSet.Unicode)] private static extern int qc_start(ref Config config, [Out] char[] error, int errorLength);
     [DllImport(Dll)] private static extern void qc_stop();
-    [DllImport(Dll)] private static extern void qc_set_chat_processes(uint[] pids, int count);
+    [DllImport(Dll)] private static extern void qc_set_audio_processes(uint desktopExclude, uint[] desktopInclude, int desktopCount,
+        uint[] chat, int chatCount, uint[] music, int musicCount);
     [DllImport(Dll, CharSet = CharSet.Unicode)] private static extern int qc_save(string path, int seconds, string title, [Out] char[] error, int errorLength);
     [DllImport(Dll)] private static extern int qc_get_stats(out Stats stats);
 }

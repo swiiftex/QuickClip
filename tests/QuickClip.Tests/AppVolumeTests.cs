@@ -45,6 +45,13 @@ public sealed class AppVolumeTests(MediaFixture media)
     }
 
     [Fact]
+    public void Apps_with_audio_are_listed()
+    {
+        if (AppVolume.OpenSession() is null) return; // opening our session makes this process one of them
+        Assert.Contains((uint)Environment.ProcessId, CoreAudio.SessionProcessIds());
+    }
+
+    [Fact]
     public async Task Preview_audio_is_listed_as_QuickClip_in_the_mixer()
     {
         if (AppVolume.OpenSession() is not { } session) return;

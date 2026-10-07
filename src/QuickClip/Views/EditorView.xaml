@@ -83,10 +83,7 @@
                 <Button Style="{StaticResource IconButton}" Content="&#xE893;" Click="GoEnd_Click" ToolTip="Go to end (End)" />
                 <TextBlock x:Name="TimeText" Margin="10,0,0,0" VerticalAlignment="Center" FontFamily="Consolas" FontSize="15" Text="0:00.000" />
                 <TextBlock x:Name="DurationText" VerticalAlignment="Center" FontFamily="Consolas" FontSize="13" Foreground="{StaticResource SubtleText}" Text=" / 0:00.000" />
-                <!-- QuickClip's level in the Windows volume mixer -->
-                <Button x:Name="MuteButton" Style="{StaticResource IconButton}" Content="&#xE995;" Margin="14,0,2,0" Click="Mute_Click" />
-                <Slider x:Name="PreviewVolumeSlider" Width="90" Minimum="0" Maximum="100" SmallChange="1" LargeChange="10" Focusable="False"
-                        IsMoveToPointEnabled="True" VerticalAlignment="Center" ValueChanged="PreviewVolume_Changed" PreviewMouseWheel="PreviewVolume_Wheel" />
+                <controls:AppVolumeControl x:Name="Volume" Margin="14,0,0,0" VerticalAlignment="Center" />
             </StackPanel>
             <StackPanel x:Name="EditControls" Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Right">
                 <Button Style="{StaticResource TextButton}" Click="SetIn_Click" Content="Set in" ToolTip="Start the clip at the playhead (I)" />

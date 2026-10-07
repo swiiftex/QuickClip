@@ -15,7 +15,7 @@
   IgnorableNamespaces="uap uap10 desktop4 desktop5 com rescap">
   <Identity Name="QuickClip.ContextMenu"
             Publisher="CN=QuickClip Local"
-            Version="0.3.1.0"
+            Version="0.3.2.0"
             ProcessorArchitecture="x64" />
   <Properties>
     <DisplayName>QuickClip</DisplayName>

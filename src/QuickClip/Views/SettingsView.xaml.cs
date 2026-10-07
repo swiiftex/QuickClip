@@ -144,6 +144,7 @@ public partial class SettingsView : UserControl
             CursorCheck.IsChecked = s.CaptureCursor;
 
             SplitChatCheck.IsChecked = s.SplitChatAudio;
+            SplitMusicCheck.IsChecked = s.SplitMusicAudio;
             MicCheck.IsChecked = s.RecordMic;
             var mics = CaptureEngine.IsAvailable ? await Task.Run(() => { CaptureEngine.Initialize(); return CaptureEngine.EnumMicrophones(); }) : [];
             string defaultMic = mics.FirstOrDefault(m => m.IsDefault != 0).Name ?? "";
@@ -218,6 +219,7 @@ public partial class SettingsView : UserControl
         s.RecordEncoder = (EncoderCombo.SelectedItem as Choice)?.Value as string ?? "";
         s.CaptureCursor = CursorCheck.IsChecked == true;
         s.SplitChatAudio = SplitChatCheck.IsChecked == true;
+        s.SplitMusicAudio = SplitMusicCheck.IsChecked == true;
         s.RecordMic = MicCheck.IsChecked == true;
         s.MicDeviceId = (MicCombo.SelectedItem as Choice)?.Value as string ?? "";
         MicCombo.IsEnabled = s.RecordMic;
@@ -256,7 +258,7 @@ public partial class SettingsView : UserControl
         string encoderId = s.RecordEncoder.Length > 0 ? s.RecordEncoder : RecordingPresets.DefaultEncoder(_encoders)?.Id ?? "h264_amf";
         string family = VideoEncoders.Find(encoderId)?.Family ?? "h264";
         int kbps = RecordingPresets.VideoKbps(s.RecordQuality, w, h, s.RecordFps, family);
-        int tracks = 1 + (s.SplitChatAudio ? 1 : 0) + (s.RecordMic ? 1 : 0);
+        int tracks = RecordingPresets.AudioTrackCount(s);
         long ram = RecordingPresets.EstimateRamBytes(kbps, tracks, s.BufferSeconds);
         long clip = (long)((kbps + tracks * RecordingPresets.AudioKbps) * 1000.0 / 8 * s.BufferSeconds);
         BitrateText.Text = $"≈ {kbps / 1000.0:0.#} Mbps";
@@ -268,6 +270,9 @@ public partial class SettingsView : UserControl
         ChatText.Text = state.ChatApps.Count > 0
             ? $"Detected now: {string.Join(", ", state.ChatApps)}"
             : "No voice chat app is running right now.";
+        MusicText.Text = (state.MusicApps.Count > 0
+            ? $"Detected now: {string.Join(", ", state.MusicApps)}."
+            : "No music app is running right now.") + " Music played in a web browser stays on the Desktop track.";
         RecorderStatus.Text = state.Running ? $"Recording · {state.Summary}"
             : state.Error != null ? "Not recording: " + state.Error
             : AppSettings.Current.RecordingEnabled ? "Starting…" : "Recording is off.";

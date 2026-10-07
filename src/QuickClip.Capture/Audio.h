@@ -9,7 +9,7 @@
 
 namespace qc
 {
-    /// Collects one output track (Desktop, Chat or Mic) on the engine timeline. Sources add samples at the
+    /// Collects one output track (Desktop, Chat, Music or Mic) on the engine timeline. Sources add samples at the
     /// position their capture timestamp says; the encoder takes finished blocks in order. Gaps stay silent.
     class TrackMixer
     {
@@ -36,6 +36,10 @@ namespace qc
     };
 
     enum class SourceKind { ProcessInclude, ProcessExclude, Microphone };
+
+    /// Whether Windows can capture single apps (Windows 11, or Windows 10 build 20348 and later). Without it,
+    /// Desktop records everything the speakers play and the Chat and Music tracks stay silent.
+    bool PerAppCaptureAvailable();
 
     /// One WASAPI capture stream feeding a TrackMixer. Reconnects by itself if the device goes away.
     class AudioSource

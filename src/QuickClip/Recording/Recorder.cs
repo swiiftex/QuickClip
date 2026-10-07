@@ -1,11 +1,12 @@
 using QuickClip.Media;
+using QuickClip.Shell;
 
 namespace QuickClip.Recording;
 
 public sealed record SavedClip(string Path, string Folder, int Seconds);
 
 /// <summary>What the recorder is currently doing, for the UI.</summary>
-public sealed record RecorderState(bool Running, string? Error, string Summary, IReadOnlyList<string> ChatApps);
+public sealed record RecorderState(bool Running, string? Error, string Summary, IReadOnlyList<string> ChatApps, IReadOnlyList<string> MusicApps);
 
 /// <summary>Instant-replay service: keeps the capture engine running per the settings and saves clips on demand.</summary>
 internal sealed class Recorder
@@ -16,20 +17,21 @@ internal sealed class Recorder
     private readonly SemaphoreSlim _saveGate = new(1, 1);
     private readonly GameDetector _games = new();
     private Timer? _poll;
-    private IReadOnlyList<string> _chatApps = [];
+    private IReadOnlyList<string> _chatApps = [], _musicApps = [];
     private string _summary = "";
+    private string? _routingError;
 
     public bool IsRunning { get; private set; }
     public string? Error { get; private set; }
     public int VideoKbps { get; private set; }
     public int AudioTracks { get; private set; }
 
-    /// <summary>Raised (on a worker thread) when recording starts, stops, fails or chat apps change.</summary>
+    /// <summary>Raised (on a worker thread) when recording starts, stops, fails or chat or music apps change.</summary>
     public event Action<RecorderState>? StateChanged;
     public event Action<SavedClip>? ClipSaved;
     public event Action<string>? SaveFailed;
 
-    public RecorderState State => new(IsRunning, Error, _summary, _chatApps);
+    public RecorderState State => new(IsRunning, Error, _summary, _chatApps, _musicApps);
 
     /// <summary>(Re)starts recording from the current settings, or stops it if recording is turned off.</summary>
     public Task ApplySettingsAsync() => Task.Run(() =>
@@ -83,10 +85,10 @@ internal sealed class Recorder
             bool scaled = w != monitor.Width || h != monitor.Height;
             string family = VideoEncoders.Find(encoder)?.Family ?? "h264";
             VideoKbps = RecordingPresets.VideoKbps(s.RecordQuality, w, h, s.RecordFps, family);
-            AudioTracks = 1 + (s.SplitChatAudio ? 1 : 0) + (s.RecordMic ? 1 : 0);
+            AudioTracks = RecordingPresets.AudioTrackCount(s);
 
             Error = CaptureEngine.Start(monitor.DeviceName, s.RecordFps, scaled ? w : 0, scaled ? h : 0, encoder, VideoKbps,
-                RecordingPresets.AudioKbps, s.BufferSeconds, s.CaptureCursor, s.SplitChatAudio, s.RecordMic,
+                RecordingPresets.AudioKbps, s.BufferSeconds, s.CaptureCursor, s.SplitChatAudio, s.SplitMusicAudio, s.RecordMic,
                 string.IsNullOrEmpty(s.MicDeviceId) ? null : s.MicDeviceId);
             if (Error != null) return;
 
@@ -115,21 +117,43 @@ internal sealed class Recorder
     {
         try
         {
+            var s = AppSettings.Current;
             var processes = ProcessScan.Snapshot();
             var chat = ChatApps.Find(processes);
-            if (AppSettings.Current.SplitChatAudio) CaptureEngine.SetChatProcesses(chat.Select(c => c.Pid).ToList());
+            var music = MusicApps.Find(processes);
+            List<uint> chatPids = s.SplitChatAudio ? [.. chat.Select(c => c.Pid)] : [];
+            List<uint> musicPids = s.SplitMusicAudio ? [.. music.Select(m => m.Pid)] : [];
+            CaptureEngine.SetAudioProcesses(PlanDesktop(processes, [.. chatPids, .. musicPids]), chatPids, musicPids);
             _games.Poll();
 
-            var names = chat.Select(c => c.Name).Distinct().ToList();
-            if (!names.SequenceEqual(_chatApps))
+            var chatNames = chat.Select(c => c.Name).Distinct().ToList();
+            var musicNames = music.Select(m => m.Name).Distinct().ToList();
+            if (!chatNames.SequenceEqual(_chatApps) || !musicNames.SequenceEqual(_musicApps))
             {
-                _chatApps = names;
+                (_chatApps, _musicApps) = (chatNames, musicNames);
                 StateChanged?.Invoke(State);
             }
         }
         catch (Exception ex)
         {
             Log.Write("Recorder poll failed: " + ex.Message);
+        }
+    }
+
+    private AudioRouting.Desktop PlanDesktop(IReadOnlyList<ProcessScan.Entry> processes, IReadOnlyList<uint> separated)
+    {
+        try
+        {
+            var plan = AudioRouting.Plan(processes, separated, CoreAudio.SessionProcessIds, (uint)Environment.ProcessId);
+            _routingError = null;
+            return plan;
+        }
+        catch (Exception ex)
+        {
+            // Can't list the apps with audio: leave out just the first separated app, as with only one.
+            if (ex.Message != _routingError) Log.Write("Listing the apps with audio failed: " + ex.Message);
+            _routingError = ex.Message;
+            return new AudioRouting.Desktop(separated[0], []);
         }
     }
 

@@ -149,6 +149,18 @@ namespace qc
         }
     }
 
+    bool PerAppCaptureAvailable()
+    {
+        static const bool supported = [] {
+            // GetVersionEx reports what the host's manifest claims to support; ntdll reports the real build.
+            using RtlGetVersionFn = LONG(WINAPI*)(OSVERSIONINFOW*);
+            auto getVersion = reinterpret_cast<RtlGetVersionFn>(GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "RtlGetVersion"));
+            OSVERSIONINFOW version{ sizeof(version) };
+            return getVersion && getVersion(&version) == 0 && version.dwBuildNumber >= 20348;
+        }();
+        return supported && !ProcessLoopbackDisabled();
+    }
+
     AudioSource::AudioSource(SourceKind kind, DWORD pid, std::wstring deviceId, TrackMixer& mixer)
         : kind_(kind), pid_(pid), deviceId_(std::move(deviceId)), mixer_(mixer),
           stop_(CreateEventW(nullptr, TRUE, FALSE, nullptr))
@@ -193,9 +205,8 @@ namespace qc
             hr = ActivateMicrophone(deviceId_, client);
         else
         {
-            hr = ProcessLoopbackDisabled() ? E_NOTIMPL : ActivateProcessLoopback(pid_, kind_ == SourceKind::ProcessInclude, client);
-            // Per-app capture needs Windows 11 (or Windows 10 build 20348). Before that, Desktop records
-            // everything the speakers play and the Chat track stays silent.
+            hr = PerAppCaptureAvailable() ? ActivateProcessLoopback(pid_, kind_ == SourceKind::ProcessInclude, client) : E_NOTIMPL;
+            // Without per-app capture, Desktop records everything the speakers play.
             if (FAILED(hr) && kind_ == SourceKind::ProcessExclude)
             {
                 if (!endpointFallbackLogged_)

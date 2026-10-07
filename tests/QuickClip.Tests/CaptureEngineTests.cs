@@ -22,12 +22,18 @@ public sealed class CaptureEngineTests(MediaFixture media)
         var (w, h) = RecordingPresets.OutputSize(monitor.Width, monitor.Height, 720);
         string? error = CaptureEngine.Start(monitor.DeviceName, 30, w, h, encoder.Id,
             RecordingPresets.VideoKbps(RecordingQuality.Low, w, h, 30, encoder.Family), RecordingPresets.AudioKbps,
-            bufferSeconds: 10, cursor: true, splitChat: true, mic: true, micDeviceId: null);
+            bufferSeconds: 10, cursor: true, splitChat: true, splitMusic: true, mic: true, micDeviceId: null);
         Assert.Null(error);
         string clip = media.Out("engine-clip.mp4");
         try
         {
-            await Task.Delay(4000);
+            // Keyframes can be irregular for a moment after the encoder starts; keep that out of the saved 2 s.
+            await Task.Delay(3000);
+            // Switch Desktop to recording app by app (as with a chat and a music app running) mid-capture.
+            uint self = (uint)Environment.ProcessId;
+            var explorer = ProcessScan.Snapshot().FirstOrDefault(p => p.ExeName.Equals("explorer.exe", StringComparison.OrdinalIgnoreCase));
+            CaptureEngine.SetAudioProcesses(new AudioRouting.Desktop(0, [self]), [], explorer.Pid != 0 ? [explorer.Pid] : []);
+            await Task.Delay(2000);
             var stats = CaptureEngine.GetStats();
             Assert.Equal(1, stats.Running);
             Assert.True(stats.BufferBytes > 0);
@@ -42,7 +48,7 @@ public sealed class CaptureEngineTests(MediaFixture media)
         Assert.Equal(encoder.Family, info.Video!.Codec);
         Assert.Equal(h, info.Video.Height);
         Assert.InRange(info.Duration, 1.9, 3.2); // starts on the keyframe before the 2 s mark
-        Assert.Equal(["Desktop", "Chat", "Mic"], info.Audio.Select(a => a.DisplayName));
+        Assert.Equal(["Desktop", "Chat", "Music", "Mic"], info.Audio.Select(a => a.DisplayName));
         File.Delete(clip);
     }
 }

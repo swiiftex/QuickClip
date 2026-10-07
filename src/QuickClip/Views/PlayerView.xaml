@@ -1,0 +1,71 @@
+<UserControl x:Class="QuickClip.Views.PlayerView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="clr-namespace:QuickClip.Controls">
+    <UserControl.Resources>
+        <ResourceDictionary Source="/QuickClip;component/Themes/Styles.xaml" />
+    </UserControl.Resources>
+
+    <Grid x:Name="Root" Focusable="True" FocusVisualStyle="{x:Null}" Background="Black">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- Clip name and actions (hidden in full screen) -->
+        <DockPanel x:Name="Header" Background="{StaticResource PanelBrush}">
+            <Button DockPanel.Dock="Left" Style="{StaticResource IconButton}" Content="&#xE72B;" Margin="10,0,0,0" VerticalAlignment="Center"
+                    Click="Back_Click" ToolTip="Back to the gallery (Esc)" />
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,10,0">
+                <Button x:Name="PreviousButton" Style="{StaticResource IconButton}" Content="&#xE76B;" Click="Previous_Click" ToolTip="Previous clip (Page Up)" />
+                <Button x:Name="NextButton" Style="{StaticResource IconButton}" Content="&#xE76C;" Click="Next_Click" ToolTip="Next clip (Page Down)" Margin="0,0,12,0" />
+                <Button Style="{StaticResource TextButton}" Click="Edit_Click" ToolTip="Trim, crop and export this clip (E)">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE70F;" VerticalAlignment="Center" Margin="0,0,7,0" />
+                        <TextBlock Text="Edit" />
+                    </StackPanel>
+                </Button>
+                <Button Style="{StaticResource TextButton}" Click="Reveal_Click" ToolTip="Show in Explorer">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE838;" VerticalAlignment="Center" Margin="0,0,7,0" />
+                        <TextBlock Text="Show in folder" />
+                    </StackPanel>
+                </Button>
+                <Button Style="{StaticResource TextButton}" Click="Delete_Click" ToolTip="Move this clip to the Recycle Bin (Delete)" Margin="0">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE74D;" VerticalAlignment="Center" Margin="0,0,7,0" />
+                        <TextBlock Text="Delete" />
+                    </StackPanel>
+                </Button>
+            </StackPanel>
+            <StackPanel Margin="12,10,12,10" VerticalAlignment="Center">
+                <TextBlock x:Name="TitleText" FontSize="15" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                <TextBlock x:Name="InfoText" FontSize="12" Foreground="{StaticResource SubtleText}" TextTrimming="CharacterEllipsis" />
+            </StackPanel>
+        </DockPanel>
+
+        <controls:VideoHost x:Name="Video" Grid.Row="1" />
+
+        <!-- Playback controls (hide themselves in full screen while playing) -->
+        <StackPanel x:Name="ControlBar" Grid.Row="2" Background="{StaticResource PanelBrush}" MouseMove="ControlBar_MouseMove">
+            <Slider x:Name="SeekBar" Margin="14,8,14,0" Minimum="0" Maximum="1" IsMoveToPointEnabled="True" Focusable="False"
+                    ValueChanged="SeekBar_ValueChanged" />
+            <DockPanel Margin="10,2,14,8">
+                <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Button x:Name="PlayButton" Style="{StaticResource IconButton}" Content="&#xE768;" Padding="16,6" Click="Play_Click"
+                            ToolTip="Play / pause (Space)" />
+                    <TextBlock x:Name="TimeText" Margin="10,0,0,0" VerticalAlignment="Center" FontFamily="Consolas" FontSize="14" Text="0:00" />
+                    <TextBlock x:Name="DurationText" VerticalAlignment="Center" FontFamily="Consolas" FontSize="13"
+                               Foreground="{StaticResource SubtleText}" Text=" / 0:00" />
+                </StackPanel>
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                    <controls:AppVolumeControl x:Name="Volume" VerticalAlignment="Center" Margin="0,0,12,0" />
+                    <Button x:Name="FullScreenButton" Style="{StaticResource IconButton}" Content="&#xE740;" Margin="0" Click="FullScreen_Click"
+                            ToolTip="Full screen (F)" />
+                </StackPanel>
+                <Grid />
+            </DockPanel>
+        </StackPanel>
+    </Grid>
+</UserControl>

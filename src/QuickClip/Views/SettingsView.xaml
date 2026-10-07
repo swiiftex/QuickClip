@@ -136,6 +136,10 @@
                         <TextBlock Text="Put voice chat on its own track (Discord, TeamSpeak, Mumble, Teams, Zoom and more)" TextWrapping="Wrap" />
                     </CheckBox>
                     <TextBlock x:Name="ChatText" Margin="28,4,0,0" Style="{StaticResource Hint}" />
+                    <CheckBox x:Name="SplitMusicCheck" Margin="0,10,0,0" Checked="Changed" Unchecked="Changed">
+                        <TextBlock Text="Put music on its own track (Spotify, TIDAL, Apple Music, Deezer, Amazon Music and more)" TextWrapping="Wrap" />
+                    </CheckBox>
+                    <TextBlock x:Name="MusicText" Margin="28,4,0,0" Style="{StaticResource Hint}" />
 
                     <Grid Style="{StaticResource Row}">
                         <Grid.ColumnDefinitions>

@@ -103,7 +103,7 @@ internal static class AppVolume
         using var device = DefaultDevice();
         if (device == null) return null;
         var iid = typeof(IAudioSessionManager).GUID;
-        device.Com.Activate(ref iid, ClsctxAll, IntPtr.Zero, out object o);
+        device.Com.Activate(ref iid, CoreAudio.ClsctxAll, IntPtr.Zero, out object o);
         var manager = (IAudioSessionManager)o;
         // A null session GUID is the process's default session, the one mpv's output joins.
         manager.GetAudioSessionControl(IntPtr.Zero, 0, out var control);
@@ -144,7 +144,7 @@ internal static class AppVolume
         try
         {
             // Fails with E_NOTFOUND when no output device is connected.
-            return enumerator.GetDefaultAudioEndpoint(DataFlowRender, RoleMultimedia, out var device) < 0 ? null : new Device(device);
+            return enumerator.GetDefaultAudioEndpoint(CoreAudio.DataFlowRender, CoreAudio.RoleMultimedia, out var device) < 0 ? null : new Device(device);
         }
         finally
         {
@@ -173,70 +173,4 @@ internal static class AppVolume
             return 0;
         }
     }
-
-    private const int DataFlowRender = 0;
-    private const int RoleMultimedia = 1;
-    private const uint ClsctxAll = 0x17;
-}
-
-// ---- Core Audio (mmdeviceapi.h, audiopolicy.h) -------------------------------------------------
-
-[ComImport, Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")]
-internal class MMDeviceEnumerator;
-
-[ComImport, Guid("A95664D2-9614-4F35-A746-DE8DB63617E6"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-internal interface IMMDeviceEnumerator
-{
-    [PreserveSig] int EnumAudioEndpoints(int dataFlow, uint stateMask, out IntPtr devices);
-    [PreserveSig] int GetDefaultAudioEndpoint(int dataFlow, int role, out IMMDevice device);
-}
-
-[ComImport, Guid("D666063F-1587-4E43-81F1-B948E807363F"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-internal interface IMMDevice
-{
-    void Activate(ref Guid iid, uint clsCtx, IntPtr activationParams, [MarshalAs(UnmanagedType.IUnknown)] out object instance);
-    [PreserveSig] int OpenPropertyStore(uint access, out IntPtr properties);
-    [PreserveSig] int GetId(out IntPtr id);
-}
-
-[ComImport, Guid("BFA971F1-4D5E-40BB-935E-967039BFBEE4"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-internal interface IAudioSessionManager
-{
-    void GetAudioSessionControl(IntPtr sessionGuid, uint crossProcess, out IAudioSessionControl control);
-    void GetSimpleAudioVolume(IntPtr sessionGuid, uint crossProcess, out ISimpleAudioVolume volume);
-}
-
-[ComImport, Guid("F4B1A599-7266-4319-A8CA-E70ACB11E8CD"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-internal interface IAudioSessionControl
-{
-    [PreserveSig] int GetState(out int state);
-    [PreserveSig] int GetDisplayName([MarshalAs(UnmanagedType.LPWStr)] out string name);
-    [PreserveSig] int SetDisplayName([MarshalAs(UnmanagedType.LPWStr)] string name, IntPtr context);
-    [PreserveSig] int GetIconPath([MarshalAs(UnmanagedType.LPWStr)] out string path);
-    [PreserveSig] int SetIconPath([MarshalAs(UnmanagedType.LPWStr)] string path, IntPtr context);
-    [PreserveSig] int GetGroupingParam(out Guid param);
-    [PreserveSig] int SetGroupingParam(ref Guid param, IntPtr context);
-    void RegisterAudioSessionNotification(IAudioSessionEvents events);
-    void UnregisterAudioSessionNotification(IAudioSessionEvents events);
-}
-
-[ComImport, Guid("87CE5498-68D6-44E5-9215-6DA47EF883D8"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-internal interface ISimpleAudioVolume
-{
-    void SetMasterVolume(float level, ref Guid context);
-    void GetMasterVolume(out float level);
-    void SetMute([MarshalAs(UnmanagedType.Bool)] bool muted, ref Guid context);
-    void GetMute([MarshalAs(UnmanagedType.Bool)] out bool muted);
-}
-
-[ComImport, Guid("24918ACC-64B3-37C1-8CA9-74A66E9957A8"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-internal interface IAudioSessionEvents
-{
-    [PreserveSig] int OnDisplayNameChanged(IntPtr name, IntPtr context);
-    [PreserveSig] int OnIconPathChanged(IntPtr path, IntPtr context);
-    [PreserveSig] int OnSimpleVolumeChanged(float level, int muted, IntPtr context);
-    [PreserveSig] int OnChannelVolumeChanged(uint count, IntPtr volumes, uint changed, IntPtr context);
-    [PreserveSig] int OnGroupingParamChanged(IntPtr param, IntPtr context);
-    [PreserveSig] int OnStateChanged(int state);
-    [PreserveSig] int OnSessionDisconnected(int reason);
 }
