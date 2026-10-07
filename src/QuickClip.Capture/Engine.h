@@ -3,6 +3,7 @@
 
 #include "Audio.h"
 #include <deque>
+#include <map>
 #include <memory>
 #include <shared_mutex>
 
@@ -21,6 +22,7 @@ extern "C"
         int bufferSeconds;
         int captureCursor;
         int splitChat;                  // separate Chat track
+        int splitMusic;                 // separate Music track
         int micEnabled;
         const wchar_t* micDeviceId;     // null/empty = default microphone
     };
@@ -100,7 +102,10 @@ namespace qc
         explicit Engine(const QcConfig& config);
         ~Engine();
         bool Start(std::string& error);
-        void SetChatProcesses(const std::vector<DWORD>& pids);
+        /// Desktop records everything but `desktopExclude`'s process tree, or (when that is 0) only the trees of
+        /// `desktopInclude`. Chat and Music record their apps' trees.
+        void SetAudioProcesses(DWORD desktopExclude, const std::vector<DWORD>& desktopInclude,
+            const std::vector<DWORD>& chat, const std::vector<DWORD>& music);
         bool Save(const std::wstring& path, int seconds, const std::wstring& title, std::string& error);
         void GetStats(QcStats& stats);
 
@@ -108,15 +113,14 @@ namespace qc
 
     private:
         void AudioLoop();
-        void RebuildAudioSources();
 
         std::shared_ptr<Shared> shared_;
         std::wstring monitor_;
         std::wstring micDevice_;
-        bool splitChat_, micEnabled_;
+        bool splitChat_, splitMusic_, micEnabled_;
         int audioKbps_;
 
-        // Audio tracks: Desktop, then Chat and Mic when enabled.
+        // Audio tracks: Desktop, then Chat, Music and Mic when enabled.
         struct Track
         {
             std::string title;
@@ -124,12 +128,20 @@ namespace qc
             AudioEncoder encoder;
         };
         std::vector<std::unique_ptr<Track>> tracks_;
-        int chatTrack_ = -1, micTrack_ = -1;
+        int chatTrack_ = -1, musicTrack_ = -1, micTrack_ = -1;
 
+        // App capture streams by what they record. When the apps change, only the streams that differ are
+        // stopped or started, so the other tracks keep recording without a gap.
+        struct SourceKey
+        {
+            SourceKind kind;
+            DWORD pid;
+            int track;
+            auto operator<=>(const SourceKey&) const = default;
+        };
         std::mutex sourcesLock_;
-        std::vector<std::unique_ptr<AudioSource>> sources_; // desktop + chat apps; rebuilt when chat apps change
+        std::map<SourceKey, std::unique_ptr<AudioSource>> sources_;
         std::unique_ptr<AudioSource> micSource_;
-        std::vector<DWORD> chatPids_;
 
         std::thread videoThread_, audioThread_;
     };

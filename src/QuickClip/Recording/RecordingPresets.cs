@@ -51,6 +51,10 @@ internal static class RecordingPresets
         return ((int)Math.Round(monitorWidth * s / 2) * 2, (int)Math.Round(monitorHeight * s / 2) * 2);
     }
 
+    /// <summary>Desktop, plus Chat, Music and Mic when they're on.</summary>
+    public static int AudioTrackCount(AppSettings s) =>
+        1 + (s.SplitChatAudio ? 1 : 0) + (s.SplitMusicAudio ? 1 : 0) + (s.RecordMic ? 1 : 0);
+
     /// <summary>Approximate RAM held by the buffer: the encoded streams plus a couple of seconds of slack.</summary>
     public static long EstimateRamBytes(int videoKbps, int audioTracks, int bufferSeconds)
     {

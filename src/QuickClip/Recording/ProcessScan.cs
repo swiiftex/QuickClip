@@ -68,10 +68,34 @@ internal static class ProcessScan
     [DllImport("kernel32.dll")] private static extern bool CloseHandle(IntPtr handle);
 }
 
+/// <summary>A running app that gets its own audio track: its root process and its name.</summary>
+internal sealed record RunningApp(uint Pid, string Name);
+
+internal static class AppFinder
+{
+    /// <summary>Root process of each running app (the one whose parent isn't the same app), in list order.</summary>
+    public static List<RunningApp> Find(IReadOnlyList<ProcessScan.Entry> processes, IEnumerable<string> executables)
+    {
+        var byPid = processes.ToDictionary(p => p.Pid);
+        var result = new List<RunningApp>();
+        foreach (var name in executables)
+        {
+            string exe = name + ".exe";
+            foreach (var p in processes)
+            {
+                if (!string.Equals(p.ExeName, exe, StringComparison.OrdinalIgnoreCase)) continue;
+                bool childOfSame = byPid.TryGetValue(p.ParentPid, out var parent) && string.Equals(parent.ExeName, exe, StringComparison.OrdinalIgnoreCase);
+                if (!childOfSame) result.Add(new RunningApp(p.Pid, name));
+            }
+        }
+        return result;
+    }
+}
+
 /// <summary>Voice/chat apps whose audio goes on the Chat track.</summary>
 internal static class ChatApps
 {
-    /// <summary>Executable names (without .exe), most common first: the first one running is left out of Desktop.</summary>
+    /// <summary>Executable names (without .exe), most common first.</summary>
     public static readonly string[] Executables =
     [
         "Discord", "DiscordPTB", "DiscordCanary", "Vesktop", "Legcord", "ArmCord",
@@ -79,23 +103,18 @@ internal static class ChatApps
         "ms-teams", "Teams", "Zoom", "Skype", "slack", "Guilded", "Element", "Signal", "WhatsApp", "Telegram", "Revolt",
     ];
 
-    public sealed record Running(uint Pid, string Name);
+    public static List<RunningApp> Find(IReadOnlyList<ProcessScan.Entry> processes) => AppFinder.Find(processes, Executables);
+}
 
-    /// <summary>Root process of each running chat app (the one whose parent isn't the same app).</summary>
-    public static List<Running> Find(IReadOnlyList<ProcessScan.Entry> processes)
-    {
-        var byPid = processes.ToDictionary(p => p.Pid);
-        var result = new List<Running>();
-        foreach (var name in Executables)
-        {
-            string exe = name + ".exe";
-            foreach (var p in processes)
-            {
-                if (!string.Equals(p.ExeName, exe, StringComparison.OrdinalIgnoreCase)) continue;
-                bool childOfSame = byPid.TryGetValue(p.ParentPid, out var parent) && string.Equals(parent.ExeName, exe, StringComparison.OrdinalIgnoreCase);
-                if (!childOfSame) result.Add(new Running(p.Pid, name));
-            }
-        }
-        return result;
-    }
+/// <summary>Music apps whose audio goes on the Music track. Music played in a browser stays on Desktop.</summary>
+internal static class MusicApps
+{
+    /// <summary>Executable names (without .exe), most common first.</summary>
+    public static readonly string[] Executables =
+    [
+        "Spotify", "TIDAL", "AppleMusic", "iTunes", "Amazon Music", "Deezer", "YouTube Music", "Qobuz", "Cider", "Plexamp",
+        "foobar2000", "MusicBee", "AIMP", "winamp", "Strawberry", "Audacious",
+    ];
+
+    public static List<RunningApp> Find(IReadOnlyList<ProcessScan.Entry> processes) => AppFinder.Find(processes, Executables);
 }

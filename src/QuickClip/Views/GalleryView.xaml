@@ -11,11 +11,12 @@
             <DataTemplate x:Key="ClipCard" DataType="{x:Type gallery:ClipItem}">
                 <Border x:Name="Card" Width="264" Margin="0,0,14,16" CornerRadius="8" Background="{StaticResource CardBrush}"
                         BorderThickness="1" BorderBrush="Transparent" Cursor="Hand" ToolTip="{Binding Title}"
-                        MouseLeftButtonDown="Card_MouseLeftButtonDown" Loaded="Card_Loaded" DataContextChanged="Card_DataContextChanged">
+                        MouseLeftButtonUp="Card_MouseLeftButtonUp" Loaded="Card_Loaded" DataContextChanged="Card_DataContextChanged">
                     <Border.ContextMenu>
                         <ContextMenu>
-                            <MenuItem Header="Open in editor" Click="OpenClip_Click" FontWeight="SemiBold" />
-                            <MenuItem Header="Play" Click="PlayClip_Click" />
+                            <MenuItem Header="Play" Click="PlayClip_Click" FontWeight="SemiBold" />
+                            <MenuItem Header="Open in editor" Click="OpenClip_Click" />
+                            <MenuItem Header="Open with default app" Click="OpenWith_Click" />
                             <MenuItem Header="Show in Explorer" Click="RevealClip_Click" />
                             <Separator />
                             <MenuItem Header="Delete" Click="DeleteClip_Click" />
@@ -33,6 +34,10 @@
                                     Background="#B0000000">
                                 <TextBlock Text="{Binding DurationText}" FontSize="11.5" Foreground="White" />
                             </Border>
+                            <Border x:Name="PlayBadge" Width="46" Height="46" CornerRadius="23" Background="#B0000000" Visibility="Collapsed">
+                                <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE768;" FontSize="18" Foreground="White"
+                                           HorizontalAlignment="Center" VerticalAlignment="Center" Margin="3,0,0,0" />
+                            </Border>
                         </Grid>
                         <StackPanel Margin="11,8,11,10">
                             <TextBlock Text="{Binding Folder}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
@@ -45,6 +50,7 @@
                 <DataTemplate.Triggers>
                     <Trigger SourceName="Card" Property="IsMouseOver" Value="True">
                         <Setter TargetName="Card" Property="BorderBrush" Value="{DynamicResource AccentFillColorDefaultBrush}" />
+                        <Setter TargetName="PlayBadge" Property="Visibility" Value="Visible" />
                     </Trigger>
                 </DataTemplate.Triggers>
             </DataTemplate>

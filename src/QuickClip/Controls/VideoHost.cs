@@ -19,7 +19,7 @@ public sealed class VideoHost : HwndHost
     public event Action<int, int>? VideoMouseMove;
     public event Action<int, int>? VideoMouseUp;
 
-    /// <summary>Asked on WM_SETCURSOR with the cursor position; return a Win32 IDC_* id or 0 for the arrow.</summary>
+    /// <summary>Asked on WM_SETCURSOR with the cursor position; return a Win32 IDC_* id, 0 for the arrow or -1 for none.</summary>
     public Func<int, int, int>? CursorQuery { get; set; }
 
     public IntPtr Hwnd { get; private set; }
@@ -85,7 +85,7 @@ public sealed class VideoHost : HwndHost
     private void ApplyCursor(int x, int y)
     {
         int id = CursorQuery?.Invoke(x, y) ?? 0;
-        SetCursor(LoadCursor(IntPtr.Zero, id == 0 ? IDC_ARROW : id));
+        SetCursor(id < 0 ? IntPtr.Zero : LoadCursor(IntPtr.Zero, id == 0 ? IDC_ARROW : id));
     }
 
     private static void EnsureClass()
@@ -104,6 +104,14 @@ public sealed class VideoHost : HwndHost
         if (RegisterClassEx(ref wc) == 0 && Marshal.GetLastWin32Error() != 1410 /* already exists */)
             throw new InvalidOperationException("RegisterClassEx failed.");
         _classRegistered = true;
+    }
+
+    /// <summary>Applies <see cref="CursorQuery"/> again (e.g. to hide the pointer without waiting for it to move).</summary>
+    public void RefreshCursor()
+    {
+        if (Hwnd == IntPtr.Zero || !GetCursorPos(out var pt)) return;
+        IntPtr under = WindowFromPoint(pt);
+        if ((under == Hwnd || IsChild(Hwnd, under)) && ScreenToClient(Hwnd, ref pt)) ApplyCursor(pt.X, pt.Y);
     }
 
     public const int IDC_ARROW = 32512, IDC_CROSS = 32515, IDC_SIZENWSE = 32642, IDC_SIZENESW = 32643,
@@ -157,6 +165,8 @@ public sealed class VideoHost : HwndHost
     [DllImport("user32.dll")] private static extern IntPtr LoadCursor(IntPtr instance, int name);
     [DllImport("user32.dll")] private static extern bool GetCursorPos(out POINT pt);
     [DllImport("user32.dll")] private static extern bool ScreenToClient(IntPtr hwnd, ref POINT pt);
+    [DllImport("user32.dll")] private static extern IntPtr WindowFromPoint(POINT pt);
+    [DllImport("user32.dll")] private static extern bool IsChild(IntPtr parent, IntPtr hwnd);
     [DllImport("gdi32.dll")] private static extern IntPtr GetStockObject(int obj);
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] private static extern IntPtr GetModuleHandle(string? name);
 }

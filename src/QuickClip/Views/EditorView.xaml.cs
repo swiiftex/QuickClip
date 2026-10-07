@@ -52,8 +52,6 @@ public partial class EditorView : UserControl
     private bool _uiReady;
     private bool _refreshingEncoders;
     private bool _closed;
-    private bool _appMuted;
-    private bool _showingAppVolume;
     private int _timePosQueued;
     private double _mpvTimePos;
 
@@ -136,11 +134,6 @@ public partial class EditorView : UserControl
 
         LoopToggle.IsChecked = _settings.Loop;
         MergeCheck.IsChecked = _settings.MergeAudio;
-        AppVolume.ChangedElsewhere += OnAppVolumeChangedElsewhere;
-        // The level may have been changed in the mixer, or the output device switched, while we were in the background.
-        OwnerWindow.Activated += (_, _) => RefreshAppVolume();
-        IsVisibleChanged += (_, _) => RefreshAppVolume();
-        RefreshAppVolume();
         _uiReady = true;
 
         if (_pendingFile != null)
@@ -168,7 +161,6 @@ public partial class EditorView : UserControl
 
         _closed = true;
         SaveSettings();
-        AppVolume.ChangedElsewhere -= OnAppVolumeChangedElsewhere;
         _waveCts?.Cancel();
         _childWindowTimer.Stop();
         _audioSyncTimer.Stop();
@@ -396,59 +388,6 @@ public partial class EditorView : UserControl
         Grid.SetColumn(EditControls, oneLine ? 1 : 0);
         Grid.SetColumnSpan(EditControls, oneLine ? 1 : 2);
         EditControls.Margin = new Thickness(0, oneLine ? 0 : 8, 0, 0);
-    }
-
-    // ------------------------------------------------------------------------------------------
-    // Preview volume: QuickClip's own level in the Windows volume mixer
-    // ------------------------------------------------------------------------------------------
-
-    private void OnAppVolumeChangedElsewhere() => Dispatcher.BeginInvoke(RefreshAppVolume);
-
-    private void RefreshAppVolume()
-    {
-        if (!IsVisible || _closed) return;
-        AppVolume.Refresh();
-        var volume = AppVolume.Read();
-        _showingAppVolume = true;
-        PreviewVolumeSlider.IsEnabled = MuteButton.IsEnabled = volume != null;
-        if (volume is { } v)
-        {
-            PreviewVolumeSlider.Value = Math.Round(v.Level * 100);
-            _appMuted = v.Muted;
-        }
-        _showingAppVolume = false;
-        UpdateVolumeButton();
-    }
-
-    private void PreviewVolume_Changed(object sender, RoutedPropertyChangedEventArgs<double> e)
-    {
-        if (!_showingAppVolume)
-        {
-            AppVolume.SetLevel((float)(e.NewValue / 100));
-            // Moving the slider unmutes, as it does in the mixer.
-            if (_appMuted) AppVolume.SetMuted(_appMuted = false);
-        }
-        UpdateVolumeButton();
-    }
-
-    private void PreviewVolume_Wheel(object sender, MouseWheelEventArgs e)
-    {
-        PreviewVolumeSlider.Value = Math.Clamp(PreviewVolumeSlider.Value + Math.Sign(e.Delta) * 5, 0, 100);
-        e.Handled = true;
-    }
-
-    private void Mute_Click(object sender, RoutedEventArgs e)
-    {
-        AppVolume.SetMuted(_appMuted = !_appMuted);
-        UpdateVolumeButton();
-    }
-
-    private void UpdateVolumeButton()
-    {
-        double level = PreviewVolumeSlider.Value;
-        MuteButton.Content = _appMuted || level == 0 ? "" : level < 34 ? "" : level < 67 ? "" : "";
-        MuteButton.ToolTip = _appMuted ? "Unmute (M)" : "Mute (M)";
-        PreviewVolumeSlider.ToolTip = $"Preview volume {level:0}%, QuickClip's level in the Windows volume mixer";
     }
 
     // ------------------------------------------------------------------------------------------
@@ -723,7 +662,7 @@ public partial class EditorView : UserControl
             case Key.End: Seek(_timeline.Duration); break;
             case Key.L: LoopToggle.IsChecked = LoopToggle.IsChecked != true; break;
             case Key.C when CropCheck.IsEnabled: CropCheck.IsChecked = CropCheck.IsChecked != true; break;
-            case Key.M when MuteButton.IsEnabled: Mute_Click(this, e); break;
+            case Key.M: Volume.ToggleMute(); break;
             case Key.OemPlus or Key.Add: _timeline.ZoomAt(_timeline.Position, 0.5); break;
             case Key.OemMinus or Key.Subtract: _timeline.ZoomAt(_timeline.Position, 2); break;
             case Key.D0 or Key.NumPad0: _timeline.Fit(); break;

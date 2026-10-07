@@ -28,6 +28,7 @@ internal sealed class AppSettings
     public int BufferSeconds { get; set; } = 60;
     public bool CaptureCursor { get; set; } = true;
     public bool SplitChatAudio { get; set; } = true;
+    public bool SplitMusicAudio { get; set; } = true;
     public bool RecordMic { get; set; } = true;
     public string MicDeviceId { get; set; } = "";               // empty = Windows default
     public int HotkeyModifiers { get; set; } = 1;               // MOD_ALT

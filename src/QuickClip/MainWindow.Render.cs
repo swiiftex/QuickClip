@@ -17,6 +17,23 @@ public partial class MainWindow
         await Task.Delay(5000);
         SaveVisual(Path.Combine(dir, "gallery.png"));
 
+        if (Gallery.PlayFirstForRender())
+        {
+            await Task.Delay(3000);
+            SaveVisual(Path.Combine(dir, "player.png"));
+            _player!.SaveVideoForRender(Path.Combine(dir, "player-video.png"));
+            report.AppendLine($"player title={Title} {_player.DebugState}");
+            // The full-screen layout, without taking over the screen.
+            ApplyFullScreenLayout(true);
+            await Task.Delay(1000);
+            SaveVisual(Path.Combine(dir, "player-full.png"));
+            await Task.Delay(3500);
+            SaveVisual(Path.Combine(dir, "player-full-idle.png"));
+            report.AppendLine($"player after 4.5 s full screen: controls={_player.ControlBar.Visibility} {_player.DebugState}");
+            ApplyFullScreenLayout(false);
+            ShowPage(Gallery);
+        }
+
         ShowSettings();
         await Updates.Updater.CheckAsync();
         await Task.Delay(3000);
@@ -40,9 +57,12 @@ public partial class MainWindow
             Width = width;
         }
 
+        report.AppendLine($"content {((FrameworkElement)Content).ActualWidth}x{((FrameworkElement)Content).ActualHeight}, drawn bounds {VisualTreeHelper.GetDescendantBounds((Visual)Content)}");
+        foreach (UIElement page in Pages.Children)
+            report.AppendLine($"  {page.GetType().Name} {page.Visibility} bounds {VisualTreeHelper.GetDescendantBounds(page)}");
         var r = Recorder.Instance;
         var stats = r.Stats();
-        report.AppendLine($"recorder running={r.IsRunning} error={r.Error} summary={r.State.Summary} chat=[{string.Join(",", r.State.ChatApps)}]");
+        report.AppendLine($"recorder running={r.IsRunning} error={r.Error} summary={r.State.Summary} chat=[{string.Join(",", r.State.ChatApps)}] music=[{string.Join(",", r.State.MusicApps)}]");
         report.AppendLine($"stats {stats.Width}x{stats.Height} fps={stats.Fps} buffered={stats.BufferSeconds:0.0}s bytes={stats.BufferBytes} dropped={stats.DroppedFrames}");
         report.AppendLine($"hotkey active={App.Host?.HotkeyActive} status={RecStatus.Text}");
         File.WriteAllText(Path.Combine(dir, "report.txt"), report.ToString());
@@ -58,7 +78,9 @@ public partial class MainWindow
         using (var dc = dv.RenderOpen())
         {
             dc.DrawRectangle(new SolidColorBrush(Color.FromRgb(0x20, 0x20, 0x20)), null, new Rect(0, 0, content.ActualWidth, content.ActualHeight));
-            dc.DrawRectangle(new VisualBrush(content), null, new Rect(0, 0, content.ActualWidth, content.ActualHeight));
+            // Map exactly the window's area, even if something hangs off its edge.
+            var area = new Rect(0, 0, content.ActualWidth, content.ActualHeight);
+            dc.DrawRectangle(new VisualBrush(content) { ViewboxUnits = BrushMappingMode.Absolute, Viewbox = area }, null, area);
         }
         rtb.Render(dv);
         var encoder = new PngBitmapEncoder();

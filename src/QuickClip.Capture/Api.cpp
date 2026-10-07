@@ -109,12 +109,13 @@ extern "C"
         g_engine.reset();
     }
 
-    __declspec(dllexport) void qc_set_chat_processes(const uint32_t* pids, int count)
+    __declspec(dllexport) void qc_set_audio_processes(uint32_t desktopExclude, const uint32_t* desktopInclude, int desktopCount,
+        const uint32_t* chat, int chatCount, const uint32_t* music, int musicCount)
     {
         std::shared_lock guard(g_engineLock);
         if (!g_engine) return;
-        std::vector<DWORD> list(pids, pids + (count > 0 ? count : 0));
-        g_engine->SetChatProcesses(list);
+        auto list = [](const uint32_t* pids, int count) { return std::vector<DWORD>(pids, pids + (pids && count > 0 ? count : 0)); };
+        g_engine->SetAudioProcesses(desktopExclude, list(desktopInclude, desktopCount), list(chat, chatCount), list(music, musicCount));
     }
 
     __declspec(dllexport) int qc_save(const wchar_t* path, int seconds, const wchar_t* title, wchar_t* error, int errorLength)

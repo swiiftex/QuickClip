@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <set>
 
 namespace qc
 {
@@ -451,7 +452,7 @@ namespace qc
         : shared_(std::make_shared<Shared>(static_cast<int64_t>(c.bufferSeconds) * 1000000)),
           monitor_(c.monitorDevice ? c.monitorDevice : L""),
           micDevice_(c.micDeviceId ? c.micDeviceId : L""),
-          splitChat_(c.splitChat != 0), micEnabled_(c.micEnabled != 0), audioKbps_(c.audioKbps)
+          splitChat_(c.splitChat != 0), splitMusic_(c.splitMusic != 0), micEnabled_(c.micEnabled != 0), audioKbps_(c.audioKbps)
     {
         shared_->fps = std::clamp(c.fps, 10, 240);
         shared_->outWidth = c.outWidth & ~1;
@@ -480,6 +481,7 @@ namespace qc
         };
         if (addTrack("Desktop") < 0) return false;
         if (splitChat_ && (chatTrack_ = addTrack("Chat")) < 0) return false;
+        if (splitMusic_ && (musicTrack_ = addTrack("Music")) < 0) return false;
         if (micEnabled_ && (micTrack_ = addTrack("Mic")) < 0) return false;
 
         videoThread_ = std::thread(VideoLoop, shared_);
@@ -490,7 +492,8 @@ namespace qc
             return false;
         }
 
-        RebuildAudioSources();
+        // Until the app reports its chat and music apps: everything except QuickClip's own previews.
+        SetAudioProcesses(GetCurrentProcessId(), {}, {}, {});
         if (micEnabled_)
             micSource_ = std::make_unique<AudioSource>(SourceKind::Microphone, 0, micDevice_, *tracks_[micTrack_]->mixer);
         audioThread_ = std::thread([this] { AudioLoop(); });
@@ -514,29 +517,33 @@ namespace qc
         }
     }
 
-    void Engine::RebuildAudioSources()
+    void Engine::SetAudioProcesses(DWORD desktopExclude, const std::vector<DWORD>& desktopInclude,
+        const std::vector<DWORD>& chat, const std::vector<DWORD>& music)
     {
-        std::lock_guard guard(sourcesLock_);
-        sources_.clear();
-        // Desktop = everything except the chat app (process loopback can leave out one process tree);
-        // with no chat app, leave out QuickClip itself so its own previews aren't recorded.
-        DWORD exclude = splitChat_ && !chatPids_.empty() ? chatPids_.front() : GetCurrentProcessId();
-        sources_.push_back(std::make_unique<AudioSource>(SourceKind::ProcessExclude, exclude, L"", *tracks_[0]->mixer));
-        if (splitChat_)
-            for (DWORD pid : chatPids_)
-                sources_.push_back(std::make_unique<AudioSource>(SourceKind::ProcessInclude, pid, L"", *tracks_[chatTrack_]->mixer));
-    }
-
-    void Engine::SetChatProcesses(const std::vector<DWORD>& pids)
-    {
-        if (!splitChat_) return;
+        std::set<SourceKey> wanted;
+        if (PerAppCaptureAvailable())
         {
-            std::lock_guard guard(sourcesLock_);
-            if (pids == chatPids_) return;
-            chatPids_ = pids;
+            if (desktopExclude != 0) wanted.insert({ SourceKind::ProcessExclude, desktopExclude, 0 });
+            else for (DWORD pid : desktopInclude) wanted.insert({ SourceKind::ProcessInclude, pid, 0 });
+            if (chatTrack_ >= 0) for (DWORD pid : chat) wanted.insert({ SourceKind::ProcessInclude, pid, chatTrack_ });
+            if (musicTrack_ >= 0) for (DWORD pid : music) wanted.insert({ SourceKind::ProcessInclude, pid, musicTrack_ });
         }
-        Log("chat processes changed (%zu running)", pids.size());
-        RebuildAudioSources();
+        else
+            wanted.insert({ SourceKind::ProcessExclude, GetCurrentProcessId(), 0 }); // falls back to all system audio
+
+        std::lock_guard guard(sourcesLock_);
+        size_t stopped = std::erase_if(sources_, [&](const auto& source) { return !wanted.contains(source.first); });
+        // Old streams stop before new ones start: a moment of silence rather than the same sound twice.
+        size_t started = 0;
+        for (const auto& key : wanted)
+            if (!sources_.contains(key))
+            {
+                sources_.emplace(key, std::make_unique<AudioSource>(key.kind, key.pid, L"", *tracks_[static_cast<size_t>(key.track)]->mixer));
+                started++;
+            }
+        if (stopped > 0 || started > 0)
+            Log("app audio changed: desktop %s, %zu chat and %zu music apps (%zu streams stopped, %zu started)",
+                desktopExclude != 0 ? "is all but one app" : "is recorded app by app", chat.size(), music.size(), stopped, started);
     }
 
     void Engine::AudioLoop()

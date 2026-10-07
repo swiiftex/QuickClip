@@ -9,15 +9,17 @@ using QuickClip.Views;
 
 namespace QuickClip;
 
-/// <summary>App window: navigation between the gallery, the editor and settings, plus the recording status bar.</summary>
+/// <summary>App window: navigation between the gallery (and its player), the editor and settings, plus the recording status bar.</summary>
 public partial class MainWindow : Window
 {
     private static readonly Brush IdleDot = Freeze(new SolidColorBrush(Color.FromRgb(0x66, 0x66, 0x66)));
 
     private readonly DispatcherTimer _statusTimer;
     private EditorView? _editor;
+    private PlayerView? _player;
     private SettingsView? _settings;
     private bool _closeReady;
+    private WindowState _stateBeforeFullScreen;
 
     public MainWindow()
     {
@@ -26,6 +28,11 @@ public partial class MainWindow : Window
         Height = Math.Min(Height, SystemParameters.WorkArea.Height * 0.95);
 
         Gallery.OpenRequested += path => _ = OpenInEditorAsync(path);
+        Gallery.PlayRequested += (clips, index) =>
+        {
+            ShowPage(PlayerPage);
+            PlayerPage.Play(clips, index);
+        };
         Recorder.Instance.StateChanged += OnRecorderState;
         Updater.Changed += OnUpdaterChanged;
         OnUpdaterChanged();
@@ -37,7 +44,10 @@ public partial class MainWindow : Window
         };
         StateChanged += (_, _) =>
         {
-            if (WindowState == WindowState.Minimized && AppSettings.Current.MinimizeToTray) Hide();
+            if (WindowState != WindowState.Minimized) return;
+            // Coming back from the taskbar or the tray then shows the ordinary window.
+            SetFullScreen(false);
+            if (AppSettings.Current.MinimizeToTray) Hide();
         };
     }
 
@@ -61,6 +71,21 @@ public partial class MainWindow : Window
         }
     }
 
+    private PlayerView PlayerPage
+    {
+        get
+        {
+            if (_player != null) return _player;
+            _player = new PlayerView { Visibility = Visibility.Collapsed };
+            _player.BackRequested += () => ShowPage(Gallery);
+            _player.EditRequested += path => _ = OpenInEditorAsync(path);
+            _player.FullScreenRequested += SetFullScreen;
+            _player.TitleChanged += UpdateTitle;
+            Pages.Children.Add(_player);
+            return _player;
+        }
+    }
+
     private SettingsView SettingsPage
     {
         get
@@ -80,20 +105,60 @@ public partial class MainWindow : Window
         else if (sender == SettingsNav) ShowPage(SettingsPage);
     }
 
+    // Clicking Gallery while the player (part of the gallery) is open goes back to the clips.
+    private void GalleryNav_Click(object sender, RoutedEventArgs e) => ShowPage(Gallery);
+
     private void ShowPage(UIElement page)
     {
+        if (page != _player && _player != null)
+        {
+            SetFullScreen(false);
+            _player.Unload();
+        }
         foreach (UIElement child in Pages.Children)
             child.Visibility = child == page ? Visibility.Visible : Visibility.Collapsed;
-        GalleryNav.IsChecked = page == Gallery;
+        GalleryNav.IsChecked = page == Gallery || page == _player;
         EditorNav.IsChecked = page == _editor;
         SettingsNav.IsChecked = page == _settings;
         if (page == _editor) Dispatcher.BeginInvoke(_editor.FocusEditor, DispatcherPriority.Input);
+        if (page == _player) Dispatcher.BeginInvoke(_player.FocusPlayer, DispatcherPriority.Input);
         if (page == _settings) _settings.Refresh();
         UpdateTitle();
     }
 
     private void UpdateTitle() =>
-        Title = EditorNav.IsChecked == true && _editor?.FileTitle is string file ? $"{file} – QuickClip" : "QuickClip";
+        Title = _player?.IsVisible == true && _player.ClipTitle is string clip ? $"{clip} – QuickClip"
+            : EditorNav.IsChecked == true && _editor?.FileTitle is string file ? $"{file} – QuickClip"
+            : "QuickClip";
+
+    /// <summary>Video fills the screen: no title bar, taskbar, navigation or status bar.</summary>
+    private void SetFullScreen(bool on)
+    {
+        if (_player == null || on == _player.IsFullScreen) return;
+        ApplyFullScreenLayout(on);
+        if (on)
+        {
+            _stateBeforeFullScreen = WindowState;
+            WindowStyle = WindowStyle.None;
+            ResizeMode = ResizeMode.NoResize;
+            // Maximizing again after dropping the border makes the window cover the taskbar too.
+            WindowState = WindowState.Normal;
+            WindowState = WindowState.Maximized;
+        }
+        else
+        {
+            WindowStyle = WindowStyle.SingleBorderWindow;
+            ResizeMode = ResizeMode.CanResize;
+            if (WindowState != WindowState.Minimized) WindowState = _stateBeforeFullScreen;
+        }
+    }
+
+    private void ApplyFullScreenLayout(bool on)
+    {
+        RailColumn.Width = new GridLength(on ? 0 : 80);
+        Rail.Visibility = StatusBar.Visibility = on ? Visibility.Collapsed : Visibility.Visible;
+        _player!.IsFullScreen = on;
+    }
 
     private void OnRecorderState(RecorderState state) => Dispatcher.BeginInvoke(UpdateStatus);
 
@@ -166,6 +231,7 @@ public partial class MainWindow : Window
             _closeResult?.TrySetResult(false);
             return;
         }
+        if (_player != null) await _player.CloseAsync();
         Gallery.Release();
         _closeReady = true;
         // Close for real once this handler has returned; WPF refuses a Close() from inside Closing.

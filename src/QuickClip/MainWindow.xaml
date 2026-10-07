@@ -17,7 +17,7 @@
 
     <Grid>
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="80" />
+            <ColumnDefinition x:Name="RailColumn" Width="80" />
             <ColumnDefinition Width="*" />
         </Grid.ColumnDefinitions>
         <Grid.RowDefinitions>
@@ -26,11 +26,11 @@
         </Grid.RowDefinitions>
 
         <!-- Navigation -->
-        <DockPanel Grid.RowSpan="2" Background="{StaticResource RailBrush}">
+        <DockPanel x:Name="Rail" Grid.RowSpan="2" Background="{StaticResource RailBrush}">
             <Image DockPanel.Dock="Top" Source="Assets/QuickClip.ico" Width="30" Height="30" Margin="0,16,0,14" />
             <StackPanel DockPanel.Dock="Top">
                 <RadioButton x:Name="GalleryNav" Style="{StaticResource RailItem}" Tag="&#xE8A9;" Content="Gallery" GroupName="Nav"
-                             IsChecked="True" Checked="Nav_Checked" ToolTip="Your clips" />
+                             IsChecked="True" Checked="Nav_Checked" Click="GalleryNav_Click" ToolTip="Your clips" />
                 <RadioButton x:Name="EditorNav" Style="{StaticResource RailItem}" Tag="&#xE70F;" Content="Editor" GroupName="Nav"
                              Checked="Nav_Checked" ToolTip="Trim, crop and export a clip" />
                 <RadioButton x:Name="SettingsNav" Style="{StaticResource RailItem}" Tag="&#xE713;" Content="Settings" GroupName="Nav"
@@ -39,13 +39,13 @@
             <Grid />
         </DockPanel>
 
-        <!-- Pages: the editor is created the first time it's needed and then kept (its video window must persist) -->
+        <!-- Pages: the player and editor are created the first time they're needed and then kept (their video windows must persist) -->
         <Grid x:Name="Pages" Grid.Column="1">
             <views:GalleryView x:Name="Gallery" />
         </Grid>
 
         <!-- Recording status -->
-        <Border Grid.Row="1" Grid.Column="1" Background="{StaticResource PanelBrush}" BorderBrush="#2A2A2A" BorderThickness="0,1,0,0" Padding="16,7,10,7">
+        <Border x:Name="StatusBar" Grid.Row="1" Grid.Column="1" Background="{StaticResource PanelBrush}" BorderBrush="#2A2A2A" BorderThickness="0,1,0,0" Padding="16,7,10,7">
             <DockPanel>
                 <Button x:Name="SaveClipButton" DockPanel.Dock="Right" Style="{DynamicResource AccentButtonStyle}" Padding="12,5" Focusable="False"
                         Click="SaveClip_Click">

@@ -31,6 +31,9 @@ public partial class GalleryView : UserControl
     /// <summary>The user wants to edit a file.</summary>
     public event Action<string>? OpenRequested;
 
+    /// <summary>The user wants to watch a clip; the folder's other clips come along for previous/next.</summary>
+    public event Action<IReadOnlyList<ClipItem>, int>? PlayRequested;
+
     public GalleryView()
     {
         InitializeComponent();
@@ -221,17 +224,33 @@ public partial class GalleryView : UserControl
         return image;
     }
 
-    private void Card_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    private void Card_MouseLeftButtonUp(object sender, MouseButtonEventArgs e) => Play(ItemOf(sender));
+
+    private void Play(ClipItem? item)
     {
-        if (e.ClickCount == 2 && ItemOf(sender) is { } item) OpenRequested?.Invoke(item.Path);
+        if (item == null) return;
+        var clips = CurrentClips.ToList();
+        int index = clips.IndexOf(item);
+        if (index >= 0) PlayRequested?.Invoke(clips, index);
     }
+
+    private void PlayClip_Click(object sender, RoutedEventArgs e) => Play(ItemOf(sender));
+
+#if DEBUG
+    internal bool PlayFirstForRender()
+    {
+        if (CurrentClips.FirstOrDefault() is not { } first) return false;
+        Play(first);
+        return true;
+    }
+#endif
 
     private void OpenClip_Click(object sender, RoutedEventArgs e)
     {
         if (ItemOf(sender) is { } item) OpenRequested?.Invoke(item.Path);
     }
 
-    private void PlayClip_Click(object sender, RoutedEventArgs e)
+    private void OpenWith_Click(object sender, RoutedEventArgs e)
     {
         if (ItemOf(sender) is { } item) Process.Start(new ProcessStartInfo(item.Path) { UseShellExecute = true });
     }

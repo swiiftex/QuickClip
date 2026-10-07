@@ -36,7 +36,7 @@ internal sealed class GameDetector
 
     static GameDetector()
     {
-        foreach (var chat in ChatApps.Executables) NotGames.Add(chat);
+        foreach (var app in ChatApps.Executables.Concat(MusicApps.Executables)) NotGames.Add(app);
     }
 
     /// <summary>Called every few seconds: remembers the game in the foreground, if any.</summary>
