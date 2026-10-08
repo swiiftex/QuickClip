@@ -22,7 +22,15 @@ public sealed class VideoHost : HwndHost
     /// <summary>Asked on WM_SETCURSOR with the cursor position; return a Win32 IDC_* id, 0 for the arrow or -1 for none.</summary>
     public Func<int, int, int>? CursorQuery { get; set; }
 
+    private readonly TaskCompletionSource _created = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
     public IntPtr Hwnd { get; private set; }
+
+    /// <summary>
+    /// Completes once the native window exists, which is when the control is first shown, not while it's collapsed.
+    /// Start mpv after this: given no window, it opens one of its own.
+    /// </summary>
+    public Task Created => _created.Task;
 
     protected override HandleRef BuildWindowCore(HandleRef hwndParent)
     {
@@ -30,6 +38,7 @@ public sealed class VideoHost : HwndHost
         Hwnd = CreateWindowEx(0, ClassName, "", WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
             0, 0, 1, 1, hwndParent.Handle, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
         if (Hwnd == IntPtr.Zero) throw new InvalidOperationException("Could not create the video window.");
+        _created.TrySetResult();
         return new HandleRef(this, Hwnd);
     }
 

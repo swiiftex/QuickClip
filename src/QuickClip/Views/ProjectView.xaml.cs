@@ -100,8 +100,11 @@ public partial class ProjectView : UserControl
         Loaded += OnLoaded;
     }
 
-    private void OnLoaded(object sender, RoutedEventArgs e)
+    private async void OnLoaded(object sender, RoutedEventArgs e)
     {
+        if (_player != null) return;
+        // The project page starts hidden inside the gallery; its video window appears when a project is first opened.
+        await Video.Created;
         if (_player != null) return;
         try
         {
@@ -118,7 +121,7 @@ public partial class ProjectView : UserControl
             return;
         }
         _childWindowTimer.Start();
-        if (_clips.Count > 0) LoadClip(0, 0, play: false);
+        if (_clips.Count > 0) LoadClip(Math.Max(_current, 0), 0, play: false);
     }
 
     // ------------------------------------------------------------------------------------------

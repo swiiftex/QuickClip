@@ -115,8 +115,10 @@ public partial class PlayerView : UserControl
         if (player != null) await Task.Run(player.Dispose);
     }
 
-    private void OnLoaded(object sender, RoutedEventArgs e)
+    private async void OnLoaded(object sender, RoutedEventArgs e)
     {
+        if (_player != null) return;
+        await Video.Created;
         if (_player != null) return;
         try
         {
