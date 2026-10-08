@@ -117,6 +117,7 @@ public partial class EditorView : UserControl
 
     private async void OnLoaded(object? sender, RoutedEventArgs e)
     {
+        await Video.Created;
         try
         {
             _player = new MpvPlayer(Video.Hwnd);
