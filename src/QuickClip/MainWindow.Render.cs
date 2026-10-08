@@ -38,6 +38,9 @@ public partial class MainWindow
         await Updates.Updater.CheckAsync();
         await Task.Delay(3000);
         SaveVisual(Path.Combine(dir, "settings-1.png"));
+        _settings!.SelectAspectForRender("16:9");
+        await Task.Delay(500);
+        SaveVisual(Path.Combine(dir, "settings-16x9.png"));
         if (FindChild<ScrollViewer>(Pages.Children.OfType<Views.SettingsView>().First()) is { } scroller)
         {
             scroller.ScrollToEnd();

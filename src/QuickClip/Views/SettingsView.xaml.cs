@@ -124,6 +124,7 @@ public partial class SettingsView : UserControl
             MonitorCombo.ItemsSource = _monitors.Select(m => new Choice(m.Label, m.DeviceName)).ToList();
             Select(MonitorCombo, (_monitors.FirstOrDefault(m => string.Equals(m.DeviceName, s.RecordMonitor, StringComparison.OrdinalIgnoreCase))
                                   ?? _monitors.FirstOrDefault(m => m.IsPrimary))?.DeviceName);
+            RefreshAreas(s.RecordAspect);
 
             int stepIndex = Array.FindIndex(RecordingPresets.BufferSteps, v => v >= s.BufferSeconds);
             BufferSlider.Value = stepIndex < 0 ? RecordingPresets.BufferSteps.Length - 1 : stepIndex;
@@ -187,14 +188,38 @@ public partial class SettingsView : UserControl
     private MonitorInfo? SelectedMonitor =>
         _monitors.FirstOrDefault(m => Equals(m.DeviceName, (MonitorCombo.SelectedItem as Choice)?.Value)) ?? _monitors.FirstOrDefault();
 
-    private void RefreshResolutions(int value)
+    private string SelectedAspect => (AreaCombo.SelectedItem as Choice)?.Value as string ?? "";
+
+    /// <summary>The part of the selected monitor that gets recorded.</summary>
+    private RecordingArea? SelectedArea =>
+        SelectedMonitor is { } m ? RecordingPresets.Area(m.Width, m.Height, SelectedAspect) : null;
+
+#if DEBUG
+    internal void SelectAspectForRender(string aspect) => Select(AreaCombo, aspect);
+#endif
+
+    private void RefreshAreas(string value)
     {
         var m = SelectedMonitor;
-        var items = new List<Choice> { new(m != null ? $"Native ({m.Width}×{m.Height})" : "Native", 0) };
-        if (m != null)
-            foreach (int r in RecordingPresets.Resolutions.Where(r => r > 0 && r < Math.Min(m.Width, m.Height)))
+        var items = RecordingPresets.Aspects
+            .Select(a => new Choice(m != null ? RecordingPresets.AreaLabel(a, RecordingPresets.Area(m.Width, m.Height, a), m.Width, m.Height)
+                : a == "" ? "Whole monitor" : a, a))
+            .ToList();
+        bool was = _loading;
+        _loading = true;
+        AreaCombo.ItemsSource = items;
+        Select(AreaCombo, value);
+        _loading = was;
+    }
+
+    private void RefreshResolutions(int value)
+    {
+        var area = SelectedArea;
+        var items = new List<Choice> { new(area is { } n ? $"Native ({n.Width}×{n.Height})" : "Native", 0) };
+        if (area is { } a)
+            foreach (int r in RecordingPresets.Resolutions.Where(r => r > 0 && r < Math.Min(a.Width, a.Height)))
             {
-                var (w, h) = RecordingPresets.OutputSize(m.Width, m.Height, r);
+                var (w, h) = RecordingPresets.OutputSize(a.Width, a.Height, r);
                 items.Add(new Choice($"{r}p ({w}×{h})", r));
             }
         bool was = _loading;
@@ -208,10 +233,12 @@ public partial class SettingsView : UserControl
     {
         if (_loading || !IsInitialized) return;
         var s = AppSettings.Current;
-        if (sender == MonitorCombo) RefreshResolutions((ResolutionCombo.SelectedItem as Choice)?.Value as int? ?? 0);
+        if (sender == MonitorCombo) RefreshAreas(SelectedAspect);
+        if (sender == MonitorCombo || sender == AreaCombo) RefreshResolutions((ResolutionCombo.SelectedItem as Choice)?.Value as int? ?? 0);
 
         s.RecordingEnabled = RecordingCheck.IsChecked == true;
         s.RecordMonitor = (MonitorCombo.SelectedItem as Choice)?.Value as string ?? "";
+        s.RecordAspect = SelectedAspect;
         s.BufferSeconds = RecordingPresets.BufferSteps[(int)Math.Round(BufferSlider.Value)];
         if (QualityCombo.SelectedItem is Choice { Value: RecordingQuality q }) s.RecordQuality = q;
         if (FpsCombo.SelectedItem is Choice { Value: int fps }) s.RecordFps = fps;
@@ -248,13 +275,12 @@ public partial class SettingsView : UserControl
     {
         var s = AppSettings.Current;
         BufferText.Text = RecordingPresets.DurationLabel(s.BufferSeconds);
-        var m = SelectedMonitor;
-        if (m == null)
+        if (SelectedArea is not { } area)
         {
             RamText.Text = BitrateText.Text = "";
             return;
         }
-        var (w, h) = RecordingPresets.OutputSize(m.Width, m.Height, s.RecordResolution);
+        var (w, h) = RecordingPresets.OutputSize(area.Width, area.Height, s.RecordResolution);
         string encoderId = s.RecordEncoder.Length > 0 ? s.RecordEncoder : RecordingPresets.DefaultEncoder(_encoders)?.Id ?? "h264_amf";
         string family = VideoEncoders.Find(encoderId)?.Family ?? "h264";
         int kbps = RecordingPresets.VideoKbps(s.RecordQuality, w, h, s.RecordFps, family);

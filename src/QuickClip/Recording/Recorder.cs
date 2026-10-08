@@ -81,20 +81,23 @@ internal sealed class Recorder
                 return;
             }
 
-            var (w, h) = RecordingPresets.OutputSize(monitor.Width, monitor.Height, s.RecordResolution);
-            bool scaled = w != monitor.Width || h != monitor.Height;
+            var area = RecordingPresets.Area(monitor.Width, monitor.Height, s.RecordAspect);
+            bool cropped = area.Width != monitor.Width || area.Height != monitor.Height;
+            var (w, h) = RecordingPresets.OutputSize(area.Width, area.Height, s.RecordResolution);
+            bool scaled = w != area.Width || h != area.Height;
             string family = VideoEncoders.Find(encoder)?.Family ?? "h264";
             VideoKbps = RecordingPresets.VideoKbps(s.RecordQuality, w, h, s.RecordFps, family);
             AudioTracks = RecordingPresets.AudioTrackCount(s);
 
-            Error = CaptureEngine.Start(monitor.DeviceName, s.RecordFps, scaled ? w : 0, scaled ? h : 0, encoder, VideoKbps,
+            Error = CaptureEngine.Start(monitor.DeviceName, area, s.RecordFps, scaled ? w : 0, scaled ? h : 0, encoder, VideoKbps,
                 RecordingPresets.AudioKbps, s.BufferSeconds, s.CaptureCursor, s.SplitChatAudio, s.SplitMusicAudio, s.RecordMic,
                 string.IsNullOrEmpty(s.MicDeviceId) ? null : s.MicDeviceId);
             if (Error != null) return;
 
             IsRunning = true;
-            _summary = $"{h}p{s.RecordFps} · {family.ToUpperInvariant()} · {RecordingPresets.Label(s.RecordQuality)}";
-            Log.Write($"Recording {monitor.DeviceName} at {w}x{h}@{s.RecordFps} with {encoder}, {VideoKbps} kbps, {s.BufferSeconds}s buffer");
+            _summary = $"{h}p{s.RecordFps}{(cropped ? $" {s.RecordAspect}" : "")} · {family.ToUpperInvariant()} · {RecordingPresets.Label(s.RecordQuality)}";
+            Log.Write($"Recording {monitor.DeviceName}{(cropped ? $" ({area.Width}x{area.Height} at {area.X},{area.Y})" : "")} at {w}x{h}@{s.RecordFps} " +
+                      $"with {encoder}, {VideoKbps} kbps, {s.BufferSeconds}s buffer");
             _poll = new Timer(_ => Poll(), null, 0, 2000);
         }
         catch (Exception ex)

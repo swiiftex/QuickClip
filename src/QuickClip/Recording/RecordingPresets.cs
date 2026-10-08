@@ -4,6 +4,9 @@ namespace QuickClip.Recording;
 
 public enum RecordingQuality { Low, Medium, High, Ultra, Indistinguishable }
 
+/// <summary>The part of a monitor that gets recorded, in its pixels.</summary>
+public readonly record struct RecordingArea(int X, int Y, int Width, int Height);
+
 /// <summary>Bitrates, sizes and memory estimates for the replay buffer.</summary>
 internal static class RecordingPresets
 {
@@ -12,6 +15,30 @@ internal static class RecordingPresets
     public static readonly int[] BufferSteps = [10, 15, 20, 30, 45, 60, 90, 120, 180, 240, 300];
     public static readonly int[] FrameRates = [30, 60, 90, 120, 144, 165, 240];
     public static readonly int[] Resolutions = [0, 2160, 1440, 1080, 900, 720]; // short side; 0 = native
+    public static readonly string[] Aspects = ["", "16:9", "21:9", "16:10", "4:3"]; // "" = the whole monitor
+
+    /// <summary>
+    /// The center of a monitor with the given aspect ratio ("16:9"), e.g. the 16:9 middle of an ultrawide, or the
+    /// whole monitor for "" or when it already has that shape. Even-sized, as video encoders need.
+    /// </summary>
+    public static RecordingArea Area(int monitorWidth, int monitorHeight, string aspect)
+    {
+        var whole = new RecordingArea(0, 0, monitorWidth, monitorHeight);
+        var parts = aspect.Split(':');
+        if (parts.Length != 2 || !int.TryParse(parts[0], out int aw) || !int.TryParse(parts[1], out int ah) || aw <= 0 || ah <= 0
+            || monitorWidth <= 0 || monitorHeight <= 0)
+            return whole;
+        double ratio = aw / (double)ah, monitorRatio = monitorWidth / (double)monitorHeight;
+        if (Math.Abs(monitorRatio / ratio - 1) < 0.01) return whole;
+        int width = monitorRatio > ratio ? (int)(monitorHeight * ratio) & ~1 : monitorWidth & ~1;
+        int height = monitorRatio > ratio ? monitorHeight & ~1 : (int)(monitorWidth / ratio) & ~1;
+        return new RecordingArea((monitorWidth - width) / 2 & ~1, (monitorHeight - height) / 2 & ~1, width, height);
+    }
+
+    public static string AreaLabel(string aspect, RecordingArea area, int monitorWidth, int monitorHeight) =>
+        aspect == "" ? $"Whole monitor ({monitorWidth}×{monitorHeight})"
+        : area.Width == monitorWidth && area.Height == monitorHeight ? $"{aspect} (the whole monitor)"
+        : $"{aspect} center ({area.Width}×{area.Height})";
 
     public static string Label(RecordingQuality q) => q switch
     {
@@ -42,13 +69,13 @@ internal static class RecordingPresets
         return (int)Math.Clamp(av1Mbps1080p60 * scale * codec * 1000, 1500, 250_000);
     }
 
-    /// <summary>Output size for a short-side limit, keeping the monitor's aspect ratio (even numbers).</summary>
-    public static (int Width, int Height) OutputSize(int monitorWidth, int monitorHeight, int shortSide)
+    /// <summary>Output size for a short-side limit, keeping the recorded area's aspect ratio (even numbers).</summary>
+    public static (int Width, int Height) OutputSize(int areaWidth, int areaHeight, int shortSide)
     {
-        int shortest = Math.Min(monitorWidth, monitorHeight);
-        if (shortSide <= 0 || shortSide >= shortest) return (monitorWidth, monitorHeight);
+        int shortest = Math.Min(areaWidth, areaHeight);
+        if (shortSide <= 0 || shortSide >= shortest) return (areaWidth, areaHeight);
         double s = shortSide / (double)shortest;
-        return ((int)Math.Round(monitorWidth * s / 2) * 2, (int)Math.Round(monitorHeight * s / 2) * 2);
+        return ((int)Math.Round(areaWidth * s / 2) * 2, (int)Math.Round(areaHeight * s / 2) * 2);
     }
 
     /// <summary>Desktop, plus Chat, Music and Mic when they're on.</summary>
