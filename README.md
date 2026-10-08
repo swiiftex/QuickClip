@@ -27,6 +27,12 @@ and lets you trim, crop and remix the audio tracks before sharing.
   ago each clip was made.
 - Click a clip to watch it in the **player**, with every audio track playing, full screen, the previous or next clip
   of the folder, and buttons to edit, show or delete it.
+- **Projects** for montages: tick clips (hover a clip for its checkbox, or Ctrl+click), then **Add to project**. A
+  project is a folder in `Projects` inside the clips folder. Its clips play one after another in the preview,
+  drag them to change the order, and add a song to play under them. **Export to editor** joins everything into one
+  video (the music on its own track, faded out at the end) and opens it in the editor to set the volumes and export.
+  Clips are added as hard links when they're on the same drive, so they take no extra space.
+- **Copy to folder…** copies the ticked clips anywhere.
 - The **editor** previews video with every audio track playing at once, each at its own volume (0–200%), shows a
   waveform per track, trims frame-accurately, crops with aspect presets, and exports as a new file or over the
   original. Tracks can be kept separate or merged into one. The preview volume slider is QuickClip's own level in

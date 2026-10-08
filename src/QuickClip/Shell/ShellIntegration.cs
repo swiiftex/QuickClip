@@ -102,7 +102,7 @@ internal static class ShellIntegration
 
 internal static class RecycleBin
 {
-    /// <summary>Moves a file to the Recycle Bin. Returns false if that failed or Windows would have deleted it permanently.</summary>
+    /// <summary>Moves a file or folder to the Recycle Bin. Returns false if that failed or Windows would have deleted it permanently.</summary>
     public static bool TrySend(string path)
     {
         var op = new SHFILEOPSTRUCT
@@ -112,7 +112,7 @@ internal static class RecycleBin
             fFlags = FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_SILENT | FOF_NOERRORUI | FOF_WANTNUKEWARNING,
         };
         int result = SHFileOperation(ref op);
-        return result == 0 && !op.fAnyOperationsAborted && !File.Exists(path);
+        return result == 0 && !op.fAnyOperationsAborted && !File.Exists(path) && !Directory.Exists(path);
     }
 
     private const uint FO_DELETE = 0x0003;
