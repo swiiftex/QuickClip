@@ -4,8 +4,8 @@ using QuickClip.Recording;
 namespace QuickClip.Tests;
 
 /// <summary>
-/// Records the main monitor for a few seconds through the native engine and checks the saved clip's streams.
-/// Needs a GPU encoder; on machines without one the test passes without doing anything.
+/// Records the main monitor for a few seconds through the native engine and checks the saved clip's streams (never
+/// what they show). Needs a GPU encoder; on machines without one the tests pass without doing anything.
 /// </summary>
 [Collection("media")]
 public sealed class CaptureEngineTests(MediaFixture media)
@@ -19,8 +19,10 @@ public sealed class CaptureEngineTests(MediaFixture media)
         if (encoder == null) return;
         var monitor = Monitors.List().First(m => m.IsPrimary);
 
-        var (w, h) = RecordingPresets.OutputSize(monitor.Width, monitor.Height, 720);
-        string? error = CaptureEngine.Start(monitor.DeviceName, 30, w, h, encoder.Id,
+        // The 16:9 center (all of a 16:9 monitor), scaled down: Windows Graphics Capture crops and scales.
+        var area = RecordingPresets.Area(monitor.Width, monitor.Height, "16:9");
+        var (w, h) = RecordingPresets.OutputSize(area.Width, area.Height, 720);
+        string? error = CaptureEngine.Start(monitor.DeviceName, area, 30, w, h, encoder.Id,
             RecordingPresets.VideoKbps(RecordingQuality.Low, w, h, 30, encoder.Family), RecordingPresets.AudioKbps,
             bufferSeconds: 10, cursor: true, splitChat: true, splitMusic: true, mic: true, micDeviceId: null);
         Assert.Null(error);
@@ -46,9 +48,40 @@ public sealed class CaptureEngineTests(MediaFixture media)
 
         var info = await MediaInfo.ProbeAsync(clip);
         Assert.Equal(encoder.Family, info.Video!.Codec);
-        Assert.Equal(h, info.Video.Height);
+        Assert.Equal((w, h), (info.Video.Width, info.Video.Height));
         Assert.InRange(info.Duration, 1.9, 3.2); // starts on the keyframe before the 2 s mark
         Assert.Equal(["Desktop", "Chat", "Music", "Mic"], info.Audio.Select(a => a.DisplayName));
+        File.Delete(clip);
+    }
+
+    [Fact]
+    public async Task Records_the_center_of_the_monitor_at_full_size()
+    {
+        if (!CaptureEngine.IsAvailable) return;
+        CaptureEngine.Initialize();
+        var encoder = RecordingPresets.DefaultEncoder(await VideoEncoders.GetAvailableAsync());
+        if (encoder == null) return;
+        var monitor = Monitors.List().First(m => m.IsPrimary);
+
+        // Unscaled, so Desktop Duplication copies just this rectangle. 4:3 crops any widescreen monitor.
+        var area = RecordingPresets.Area(monitor.Width, monitor.Height, "4:3");
+        string? error = CaptureEngine.Start(monitor.DeviceName, area, 30, 0, 0, encoder.Id,
+            RecordingPresets.VideoKbps(RecordingQuality.Low, area.Width, area.Height, 30, encoder.Family), RecordingPresets.AudioKbps,
+            bufferSeconds: 10, cursor: true, splitChat: false, splitMusic: false, mic: false, micDeviceId: null);
+        Assert.Null(error);
+        string clip = media.Out("engine-center.mp4");
+        try
+        {
+            await Task.Delay(2500);
+            Assert.Null(await Task.Run(() => CaptureEngine.Save(clip, 1, "Test")));
+        }
+        finally
+        {
+            CaptureEngine.Stop();
+        }
+
+        var info = await MediaInfo.ProbeAsync(clip);
+        Assert.Equal((area.Width, area.Height), (info.Video!.Width, info.Video.Height));
         File.Delete(clip);
     }
 }

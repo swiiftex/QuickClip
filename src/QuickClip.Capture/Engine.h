@@ -14,8 +14,10 @@ extern "C"
     {
         const wchar_t* monitorDevice;   // e.g. \\.\DISPLAY1
         int fps;
-        int outWidth;                   // 0 = monitor's native size
+        int outWidth;                   // 0 = the recorded area's native size
         int outHeight;
+        int cropX, cropY;               // recorded area within the monitor (cropWidth 0 = the whole monitor)
+        int cropWidth, cropHeight;
         const char* encoder;            // FFmpeg encoder name, e.g. av1_amf
         int videoKbps;
         int audioKbps;

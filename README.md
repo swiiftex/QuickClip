@@ -8,7 +8,8 @@ and lets you trim, crop and remix the audio tracks before sharing.
 
 - **Instant replay** from 10 seconds up to 5 minutes, held in RAM (Settings shows how much memory that takes).
   Nothing is written to disk until you save a clip.
-- **Any monitor**, including virtual displays (DesktopSplitter, Duet, …).
+- **Any monitor**, including virtual displays (DesktopSplitter, Duet, …), or just its 16:9 (21:9, 16:10, 4:3) center,
+  like the middle of an ultrawide. The capture itself crops, so it costs nothing extra.
 - **Separate audio tracks**: *Desktop* (everything else), *Chat* (Discord, TeamSpeak, Mumble, Teams, Zoom, Skype,
   Slack and other voice apps), *Music* (Spotify, TIDAL, Apple Music, Deezer, Amazon Music, YouTube Music, foobar2000
   and other music apps) and *Mic*. Chat and music apps are detected automatically.

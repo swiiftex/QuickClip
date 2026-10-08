@@ -169,6 +169,7 @@ namespace qc
         explicit Shared(int64_t windowUs) : ring(windowUs) {}
 
         MonitorTarget monitor;
+        int cropX = 0, cropY = 0, cropWidth = 0, cropHeight = 0; // the whole monitor once Start has checked it
         int fps = 60, outWidth = 0, outHeight = 0, videoKbps = 0;
         bool cursor = true;
         std::string encoder;
@@ -241,11 +242,16 @@ namespace qc
             bool Build(const Engine::Shared& s, AVBufferRef* device, std::string& error)
             {
                 const auto& m = s.monitor;
-                bool scaled = s.outWidth > 0 && (s.outWidth != m.width || s.outHeight != m.height);
-                char dda[160], wgc[256];
-                snprintf(dda, sizeof dda, "output_idx=%d:framerate=%d:draw_mouse=%d", m.output, s.fps, s.cursor ? 1 : 0);
-                snprintf(wgc, sizeof wgc, "hmonitor=%llu:max_framerate=%d:capture_cursor=%d:width=%d:height=%d:resize_mode=scale",
-                    static_cast<unsigned long long>(m.hmonitor), s.fps, s.cursor ? 1 : 0, scaled ? s.outWidth : 0, scaled ? s.outHeight : 0);
+                bool scaled = s.outWidth > 0 && (s.outWidth != s.cropWidth || s.outHeight != s.cropHeight);
+                // Both sources crop on the GPU: Desktop Duplication copies just that rectangle, Graphics Capture
+                // samples (and scales) only the area inside its crop margins.
+                char dda[256], wgc[384];
+                snprintf(dda, sizeof dda, "output_idx=%d:framerate=%d:draw_mouse=%d:video_size=%dx%d:offset_x=%d:offset_y=%d",
+                    m.output, s.fps, s.cursor ? 1 : 0, s.cropWidth, s.cropHeight, s.cropX, s.cropY);
+                snprintf(wgc, sizeof wgc, "hmonitor=%llu:max_framerate=%d:capture_cursor=%d:width=%d:height=%d:resize_mode=scale"
+                    ":crop_left=%d:crop_top=%d:crop_right=%d:crop_bottom=%d",
+                    static_cast<unsigned long long>(m.hmonitor), s.fps, s.cursor ? 1 : 0, scaled ? s.outWidth : 0, scaled ? s.outHeight : 0,
+                    s.cropX, s.cropY, m.width - s.cropX - s.cropWidth, m.height - s.cropY - s.cropHeight);
 
                 // Desktop Duplication is cheapest and keeps a constant frame rate, but can't scale;
                 // Windows Graphics Capture scales on the GPU. Each is the other's fallback.
@@ -254,7 +260,7 @@ namespace qc
                 if (TryBuild("gfxcapture", wgc, device, second)) { duplication = false; return true; }
                 if (scaled && TryBuild("ddagrab", dda, device, first))
                 {
-                    Log("scaling unavailable (%s); recording at native size", second.c_str());
+                    Log("scaling unavailable (%s); recording at the area's native size", second.c_str());
                     duplication = true;
                     return true;
                 }
@@ -457,6 +463,10 @@ namespace qc
         shared_->fps = std::clamp(c.fps, 10, 240);
         shared_->outWidth = c.outWidth & ~1;
         shared_->outHeight = c.outHeight & ~1;
+        shared_->cropX = c.cropX;
+        shared_->cropY = c.cropY;
+        shared_->cropWidth = c.cropWidth & ~1;
+        shared_->cropHeight = c.cropHeight & ~1;
         shared_->videoKbps = c.videoKbps;
         shared_->cursor = c.captureCursor != 0;
         shared_->encoder = c.encoder ? c.encoder : "libx264";
@@ -468,6 +478,19 @@ namespace qc
         {
             error = "The selected monitor wasn't found.";
             return false;
+        }
+        auto& s = *shared_;
+        const auto& m = s.monitor;
+        bool fits = s.cropWidth > 0 && s.cropHeight > 0 && s.cropX >= 0 && s.cropY >= 0 &&
+            s.cropX + s.cropWidth <= m.width && s.cropY + s.cropHeight <= m.height;
+        if (!fits)
+        {
+            if (s.cropWidth > 0)
+                Log("recording area %dx%d at %d,%d doesn't fit the %dx%d monitor; recording all of it",
+                    s.cropWidth, s.cropHeight, s.cropX, s.cropY, m.width, m.height);
+            s.cropX = s.cropY = 0;
+            s.cropWidth = m.width;
+            s.cropHeight = m.height;
         }
         shared_->t0 = NowUs();
 

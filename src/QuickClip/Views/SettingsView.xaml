@@ -80,6 +80,16 @@
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="160" />
                             <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Aspect ratio" VerticalAlignment="Center" />
+                        <ComboBox x:Name="AreaCombo" Grid.Column="1" SelectionChanged="Changed"
+                                  ToolTip="Record only the middle of a wider (or taller) monitor, like the 16:9 center of an ultrawide" />
+                    </Grid>
+
+                    <Grid Style="{StaticResource Row}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="160" />
+                            <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="150" />
                         </Grid.ColumnDefinitions>
                         <TextBlock Text="Clip length" VerticalAlignment="Center" />

@@ -33,6 +33,28 @@ public sealed class RecordingPresetTests
     public void Output_size_keeps_aspect_and_even_dimensions(int w, int h, int shortSide, int ew, int eh) =>
         Assert.Equal((ew, eh), RecordingPresets.OutputSize(w, h, shortSide));
 
+    [Theory]
+    [InlineData(5120, 1440, "16:9", 1280, 0, 2560, 1440)]   // super ultrawide (32:9): the middle half
+    [InlineData(3440, 1440, "16:9", 440, 0, 2560, 1440)]    // ultrawide
+    [InlineData(5120, 1440, "21:9", 880, 0, 3360, 1440)]
+    [InlineData(1920, 1200, "16:9", 0, 60, 1920, 1080)]     // 16:10: bars off the top and bottom
+    [InlineData(1440, 2560, "16:9", 0, 874, 1440, 810)]     // portrait
+    [InlineData(2560, 1440, "16:9", 0, 0, 2560, 1440)]      // already 16:9
+    [InlineData(5120, 1440, "", 0, 0, 5120, 1440)]          // whole monitor
+    [InlineData(5120, 1440, "wide", 0, 0, 5120, 1440)]      // not an aspect ratio
+    public void Recorded_area_is_the_centered_aspect_ratio(int mw, int mh, string aspect, int x, int y, int w, int h) =>
+        Assert.Equal(new RecordingArea(x, y, w, h), RecordingPresets.Area(mw, mh, aspect));
+
+    [Fact]
+    public void Area_labels_and_output_sizes_follow_the_area()
+    {
+        Assert.Equal("16:9 center (2560×1440)", RecordingPresets.AreaLabel("16:9", RecordingPresets.Area(5120, 1440, "16:9"), 5120, 1440));
+        Assert.Equal("16:9 (the whole monitor)", RecordingPresets.AreaLabel("16:9", RecordingPresets.Area(2560, 1440, "16:9"), 2560, 1440));
+        Assert.Equal("Whole monitor (5120×1440)", RecordingPresets.AreaLabel("", RecordingPresets.Area(5120, 1440, ""), 5120, 1440));
+        var area = RecordingPresets.Area(5120, 1440, "16:9");
+        Assert.Equal((1920, 1080), RecordingPresets.OutputSize(area.Width, area.Height, 1080));
+    }
+
     [Fact]
     public void Ram_estimate_tracks_bitrate_and_length()
     {

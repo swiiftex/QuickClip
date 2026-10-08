@@ -14,6 +14,8 @@ internal static class CaptureEngine
         public int Fps;
         public int OutWidth;
         public int OutHeight;
+        public int CropX, CropY;
+        public int CropWidth, CropHeight;
         public IntPtr Encoder;
         public int VideoKbps;
         public int AudioKbps;
@@ -86,7 +88,9 @@ internal static class CaptureEngine
         return buffer.Take(Math.Min(n, buffer.Length)).ToList();
     }
 
-    public static string? Start(string monitorDevice, int fps, int outWidth, int outHeight, string encoder, int videoKbps,
+    /// <param name="area">The part of the monitor to record.</param>
+    /// <param name="outWidth">Size to scale the area to, or 0 for its native size.</param>
+    public static string? Start(string monitorDevice, RecordingArea area, int fps, int outWidth, int outHeight, string encoder, int videoKbps,
         int audioKbps, int bufferSeconds, bool cursor, bool splitChat, bool splitMusic, bool mic, string? micDeviceId)
     {
         var strings = new List<IntPtr>();
@@ -99,6 +103,10 @@ internal static class CaptureEngine
                 Fps = fps,
                 OutWidth = outWidth,
                 OutHeight = outHeight,
+                CropX = area.X,
+                CropY = area.Y,
+                CropWidth = area.Width,
+                CropHeight = area.Height,
                 Encoder = Marshal.StringToHGlobalAnsi(encoder),
                 VideoKbps = videoKbps,
                 AudioKbps = audioKbps,

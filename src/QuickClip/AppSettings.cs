@@ -21,6 +21,7 @@ internal sealed class AppSettings
     // Recording (instant replay)
     public bool RecordingEnabled { get; set; } = true;
     public string RecordMonitor { get; set; } = "";             // GDI device name; empty = main monitor
+    public string RecordAspect { get; set; } = "";              // "16:9" records the monitor's 16:9 center; empty = all of it
     public int RecordFps { get; set; } = 60;
     public int RecordResolution { get; set; }                   // short side; 0 = native
     public RecordingQuality RecordQuality { get; set; } = RecordingQuality.High;
