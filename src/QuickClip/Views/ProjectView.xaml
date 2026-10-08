@@ -1,0 +1,161 @@
+<UserControl x:Class="QuickClip.Views.ProjectView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:views="clr-namespace:QuickClip.Views"
+             xmlns:controls="clr-namespace:QuickClip.Controls">
+    <UserControl.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="/QuickClip;component/Themes/Styles.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+
+            <DataTemplate x:Key="ClipRow" DataType="{x:Type views:ProjectClip}">
+                <Border x:Name="Row" Height="60" Margin="0,0,0,4" Padding="4,4,2,4" CornerRadius="6" Background="{StaticResource CardBrush}"
+                        BorderThickness="3,0,0,0" BorderBrush="Transparent" Cursor="Hand">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE76F;" Foreground="{StaticResource SubtleText}"
+                                   VerticalAlignment="Center" Margin="4,0,8,0" Cursor="SizeAll" ToolTip="Drag to reorder" />
+                        <Border Grid.Column="1" Width="88" Height="50" CornerRadius="4" Background="#111">
+                            <Border CornerRadius="4">
+                                <Border.Background>
+                                    <ImageBrush ImageSource="{Binding Thumbnail}" Stretch="UniformToFill" />
+                                </Border.Background>
+                            </Border>
+                        </Border>
+                        <StackPanel Grid.Column="2" Margin="10,0,4,0" VerticalAlignment="Center">
+                            <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" ToolTip="{Binding Title}" />
+                            <TextBlock FontSize="12" Foreground="{StaticResource SubtleText}">
+                                <Run Text="{Binding Number, Mode=OneWay}" /><Run Text="  ·  " /><Run Text="{Binding DurationText, Mode=OneWay}" />
+                            </TextBlock>
+                        </StackPanel>
+                        <Button Grid.Column="3" Style="{StaticResource IconButton}" Content="&#xE711;" Margin="0" VerticalAlignment="Center"
+                                Click="RemoveClip_Click" ToolTip="Remove from the project (the gallery keeps its copy)" />
+                    </Grid>
+                </Border>
+                <DataTemplate.Triggers>
+                    <DataTrigger Binding="{Binding IsCurrent}" Value="True">
+                        <Setter TargetName="Row" Property="BorderBrush" Value="{DynamicResource AccentFillColorDefaultBrush}" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding IsDragged}" Value="True">
+                        <Setter TargetName="Row" Property="Opacity" Value="0.45" />
+                    </DataTrigger>
+                    <Trigger SourceName="Row" Property="IsMouseOver" Value="True">
+                        <Setter TargetName="Row" Property="Background" Value="#2C2C2C" />
+                    </Trigger>
+                </DataTemplate.Triggers>
+            </DataTemplate>
+        </ResourceDictionary>
+    </UserControl.Resources>
+
+    <DockPanel x:Name="Root" Margin="24,18,14,14" Focusable="True" FocusVisualStyle="{x:Null}">
+        <!-- Name, and what to do with it -->
+        <DockPanel DockPanel.Dock="Top" Margin="0,0,0,14">
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                <Button Style="{StaticResource TextButton}" Click="OpenFolder_Click" ToolTip="Open the project's folder in Explorer">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE838;" VerticalAlignment="Center" Margin="0,0,7,0" />
+                        <TextBlock Text="Open folder" />
+                    </StackPanel>
+                </Button>
+                <Button x:Name="ExportButton" Style="{DynamicResource AccentButtonStyle}" Padding="12,5" Focusable="False" Click="Export_Click"
+                        ToolTip="Join the clips (and the music) into one video and open it in the editor">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE70F;" VerticalAlignment="Center" Margin="0,0,7,0" />
+                        <TextBlock Text="Export to editor" />
+                    </StackPanel>
+                </Button>
+            </StackPanel>
+            <StackPanel>
+                <TextBlock x:Name="NameText" FontSize="24" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                <TextBlock x:Name="InfoText" Style="{StaticResource Hint}" Margin="0,2,0,0" />
+            </StackPanel>
+        </DockPanel>
+
+        <!-- Music -->
+        <Border DockPanel.Dock="Top" Background="{StaticResource PanelBrush}" CornerRadius="6" Padding="14,6,8,6" Margin="0,0,0,12">
+            <DockPanel>
+                <TextBlock DockPanel.Dock="Left" FontFamily="{StaticResource IconFont}" Text="&#xEC4F;" FontSize="16" VerticalAlignment="Center" Margin="0,0,12,0" />
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                    <Button x:Name="MusicButton" Style="{StaticResource TextButton}" Content="Add music…" Click="ChooseMusic_Click" />
+                    <Button x:Name="RemoveMusicButton" Style="{StaticResource TextButton}" Content="Remove" Margin="0" Click="RemoveMusic_Click" />
+                </StackPanel>
+                <TextBlock x:Name="MusicText" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+            </DockPanel>
+        </Border>
+
+        <!-- Export progress -->
+        <DockPanel x:Name="ExportPanel" DockPanel.Dock="Top" Margin="0,0,0,12" Visibility="Collapsed">
+            <Button DockPanel.Dock="Right" Style="{StaticResource TextButton}" Content="Cancel" Margin="12,0,0,0" Click="CancelExport_Click" />
+            <TextBlock x:Name="ExportText" DockPanel.Dock="Right" Margin="12,0,0,0" VerticalAlignment="Center" Style="{StaticResource Hint}" />
+            <ProgressBar x:Name="ExportProgress" Maximum="1" Height="6" VerticalAlignment="Center" />
+        </DockPanel>
+
+        <Grid>
+            <!-- Clips in play order, and the preview -->
+            <Grid x:Name="Workspace">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="330" />
+                    <ColumnDefinition Width="14" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <DockPanel>
+                    <TextBlock DockPanel.Dock="Top" Text="CLIPS · DRAG TO REORDER" Style="{StaticResource SectionHeader}" Margin="2,0,0,6" />
+                    <ListBox x:Name="ClipList" AllowDrop="True" ItemTemplate="{StaticResource ClipRow}" Background="Transparent" BorderThickness="0"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                             PreviewMouseLeftButtonDown="ClipList_PreviewMouseLeftButtonDown" PreviewMouseMove="ClipList_PreviewMouseMove"
+                             PreviewMouseLeftButtonUp="ClipList_PreviewMouseLeftButtonUp" DragOver="ClipList_DragOver" Drop="ClipList_Drop">
+                        <ListBox.ItemContainerStyle>
+                            <Style TargetType="ListBoxItem">
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="ListBoxItem">
+                                            <ContentPresenter />
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                                <Setter Property="Focusable" Value="False" />
+                            </Style>
+                        </ListBox.ItemContainerStyle>
+                    </ListBox>
+                </DockPanel>
+
+                <Grid Grid.Column="2">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <Border Background="Black" CornerRadius="6,6,0,0">
+                        <controls:VideoHost x:Name="Video" />
+                    </Border>
+                    <StackPanel Grid.Row="1" Background="{StaticResource PanelBrush}">
+                        <Slider x:Name="SeekBar" Margin="14,8,14,0" Minimum="0" Maximum="1" IsMoveToPointEnabled="True" Focusable="False"
+                                ValueChanged="SeekBar_ValueChanged" />
+                        <DockPanel Margin="10,2,14,8">
+                            <controls:AppVolumeControl x:Name="Volume" DockPanel.Dock="Right" VerticalAlignment="Center" />
+                            <Button x:Name="PlayButton" Style="{StaticResource IconButton}" Content="&#xE768;" Padding="16,6" Click="Play_Click"
+                                    ToolTip="Play / pause the montage (Space)" />
+                            <TextBlock x:Name="TimeText" Margin="10,0,0,0" VerticalAlignment="Center" FontFamily="Consolas" FontSize="14" Text="0:00" />
+                            <TextBlock x:Name="DurationText" VerticalAlignment="Center" FontFamily="Consolas" FontSize="13"
+                                       Foreground="{StaticResource SubtleText}" Text=" / 0:00" />
+                        </DockPanel>
+                    </StackPanel>
+                </Grid>
+            </Grid>
+
+            <StackPanel x:Name="EmptyState" VerticalAlignment="Center" HorizontalAlignment="Center" MaxWidth="440" Margin="0,0,0,80"
+                        Visibility="Collapsed">
+                <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE8F1;" FontSize="40" HorizontalAlignment="Center"
+                           Foreground="{StaticResource SubtleText}" />
+                <TextBlock Text="No clips in this project yet" FontSize="18" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,14,0,6" />
+                <TextBlock Style="{StaticResource Hint}" TextAlignment="Center"
+                           Text="Tick clips in the gallery (hover a clip to see its checkbox), then choose Add to project." />
+            </StackPanel>
+        </Grid>
+    </DockPanel>
+</UserControl>

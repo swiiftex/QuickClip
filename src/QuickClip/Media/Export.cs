@@ -188,9 +188,14 @@ internal static class ExportBuilder
             enc = VideoEncoders.Find("libx264")!;
         }
 
-        int q = r.Quality switch { "best" => 16, "good" => 24, "small" => 28, _ => 20 };
-        bool size = r.Quality == "size";
-        bool appleTag = c.Key is "mp4" or "mov" or "m4v";
+        AddEncoder(outArgs, enc, r.Quality, appleTag: c.Key is "mp4" or "mov" or "m4v");
+    }
+
+    /// <summary>Encoder and rate-control arguments for a quality setting ("size" leaves the bitrate to the caller).</summary>
+    public static void AddEncoder(List<string> outArgs, VideoEncoder enc, string quality, bool appleTag)
+    {
+        int q = quality switch { "best" => 16, "good" => 24, "small" => 28, _ => 20 };
+        bool size = quality == "size";
         outArgs.AddRange(["-c:v", enc.Id]);
         switch (enc.Id)
         {

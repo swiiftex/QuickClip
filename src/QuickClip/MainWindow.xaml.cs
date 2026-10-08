@@ -232,7 +232,7 @@ public partial class MainWindow : Window
             return;
         }
         if (_player != null) await _player.CloseAsync();
-        Gallery.Release();
+        await Gallery.CloseAsync();
         _closeReady = true;
         // Close for real once this handler has returned; WPF refuses a Close() from inside Closing.
         _ = Dispatcher.BeginInvoke(Close);

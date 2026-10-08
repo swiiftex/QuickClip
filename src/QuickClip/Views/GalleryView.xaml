@@ -1,7 +1,8 @@
 <UserControl x:Class="QuickClip.Views.GalleryView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:gallery="clr-namespace:QuickClip.Gallery">
+             xmlns:gallery="clr-namespace:QuickClip.Gallery"
+             xmlns:views="clr-namespace:QuickClip.Views">
     <UserControl.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
@@ -18,6 +19,8 @@
                             <MenuItem Header="Open in editor" Click="OpenClip_Click" />
                             <MenuItem Header="Open with default app" Click="OpenWith_Click" />
                             <MenuItem Header="Show in Explorer" Click="RevealClip_Click" />
+                            <Separator />
+                            <MenuItem Header="Select" Click="SelectClip_Click" />
                             <Separator />
                             <MenuItem Header="Delete" Click="DeleteClip_Click" />
                         </ContextMenu>
@@ -38,6 +41,11 @@
                                 <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE768;" FontSize="18" Foreground="White"
                                            HorizontalAlignment="Center" VerticalAlignment="Center" Margin="3,0,0,0" />
                             </Border>
+                            <!-- Ticks the clip for "Add to project" / "Copy to folder" -->
+                            <Border x:Name="PickBox" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="6" Padding="6,2,0,2" CornerRadius="5"
+                                    Background="#A0000000" Visibility="Collapsed">
+                                <CheckBox IsChecked="{Binding IsSelected}" MinHeight="0" ToolTip="Select (Ctrl+click a clip also selects it)" />
+                            </Border>
                         </Grid>
                         <StackPanel Margin="11,8,11,10">
                             <TextBlock Text="{Binding Folder}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
@@ -51,9 +59,25 @@
                     <Trigger SourceName="Card" Property="IsMouseOver" Value="True">
                         <Setter TargetName="Card" Property="BorderBrush" Value="{DynamicResource AccentFillColorDefaultBrush}" />
                         <Setter TargetName="PlayBadge" Property="Visibility" Value="Visible" />
+                        <Setter TargetName="PickBox" Property="Visibility" Value="Visible" />
                     </Trigger>
+                    <!-- While anything is selected every clip shows its checkbox, and clicking a clip ticks it -->
+                    <DataTrigger Binding="{Binding HasSelection, RelativeSource={RelativeSource AncestorType=views:GalleryView}}" Value="True">
+                        <Setter TargetName="PickBox" Property="Visibility" Value="Visible" />
+                        <Setter TargetName="PlayBadge" Property="Visibility" Value="Collapsed" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                        <Setter TargetName="PickBox" Property="Visibility" Value="Visible" />
+                        <Setter TargetName="Card" Property="BorderBrush" Value="{DynamicResource AccentFillColorDefaultBrush}" />
+                        <Setter TargetName="Card" Property="BorderThickness" Value="2" />
+                    </DataTrigger>
                 </DataTemplate.Triggers>
             </DataTemplate>
+
+            <!-- Lists in the side panel scroll with it rather than on their own -->
+            <ControlTemplate x:Key="PlainList" TargetType="ListBox">
+                <ItemsPresenter />
+            </ControlTemplate>
         </ResourceDictionary>
     </UserControl.Resources>
 
@@ -63,83 +87,143 @@
             <ColumnDefinition Width="*" />
         </Grid.ColumnDefinitions>
 
-        <!-- Folders: "All clips" first, then a folder per game -->
+        <!-- Folders ("All clips" first, then a folder per game), then projects -->
         <Border Background="{StaticResource PanelBrush}">
-            <DockPanel Margin="10,6,10,10">
-                <TextBlock DockPanel.Dock="Top" Text="FOLDERS" Style="{StaticResource SectionHeader}" Margin="8,14,0,8" />
-                <ListBox x:Name="FolderList" SelectionChanged="FolderList_SelectionChanged" Background="Transparent" BorderThickness="0"
-                         ScrollViewer.HorizontalScrollBarVisibility="Disabled">
-                    <ListBox.ItemTemplate>
-                        <DataTemplate>
-                            <DockPanel>
-                                <TextBlock DockPanel.Dock="Right" Text="{Binding Count}" Foreground="{StaticResource SubtleText}" Margin="8,0,0,0" />
-                                <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
-                            </DockPanel>
-                        </DataTemplate>
-                    </ListBox.ItemTemplate>
-                </ListBox>
-            </DockPanel>
+            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <StackPanel Margin="10,6,10,10">
+                    <TextBlock Text="FOLDERS" Style="{StaticResource SectionHeader}" Margin="8,14,0,8" />
+                    <ListBox x:Name="FolderList" Template="{StaticResource PlainList}" SelectionChanged="FolderList_SelectionChanged">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <DockPanel>
+                                    <TextBlock DockPanel.Dock="Right" Text="{Binding Count}" Foreground="{StaticResource SubtleText}" Margin="8,0,0,0" />
+                                    <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                                </DockPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+
+                    <DockPanel Margin="8,22,0,6">
+                        <Button DockPanel.Dock="Right" Style="{StaticResource IconButton}" Content="&#xE710;" FontSize="12" Padding="7,4" Margin="0"
+                                Click="NewProject_Click" ToolTip="New project" />
+                        <TextBlock Text="PROJECTS" Style="{StaticResource SectionHeader}" Margin="0" VerticalAlignment="Center" />
+                    </DockPanel>
+                    <ListBox x:Name="ProjectList" Template="{StaticResource PlainList}" SelectionChanged="ProjectList_SelectionChanged">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <DockPanel Background="Transparent">
+                                    <DockPanel.ContextMenu>
+                                        <ContextMenu>
+                                            <MenuItem Header="Rename…" Click="RenameProject_Click" />
+                                            <MenuItem Header="Open folder" Click="OpenProjectFolder_Click" />
+                                            <Separator />
+                                            <MenuItem Header="Delete project" Click="DeleteProject_Click" />
+                                        </ContextMenu>
+                                    </DockPanel.ContextMenu>
+                                    <TextBlock DockPanel.Dock="Right" Text="{Binding ClipCount}" Foreground="{StaticResource SubtleText}" Margin="8,0,0,0" />
+                                    <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                                </DockPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                    <TextBlock x:Name="NoProjectsText" Style="{StaticResource Hint}" Margin="8,2,8,0"
+                               Text="Group clips for a montage: select clips, then Add to project." />
+                </StackPanel>
+            </ScrollViewer>
         </Border>
 
-        <!-- Clips -->
-        <DockPanel Grid.Column="1" Margin="24,18,10,0">
-            <DockPanel DockPanel.Dock="Top" Margin="0,0,14,16">
-                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
-                    <Button Style="{StaticResource TextButton}" Click="OpenFolder_Click" ToolTip="Open this folder in Explorer">
-                        <StackPanel Orientation="Horizontal">
-                            <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE838;" VerticalAlignment="Center" Margin="0,0,7,0" />
-                            <TextBlock Text="Open folder" />
+        <Grid Grid.Column="1">
+            <!-- Clips -->
+            <DockPanel x:Name="ClipsPane" Margin="24,18,10,0">
+                <DockPanel DockPanel.Dock="Top" Margin="0,0,14,12">
+                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                        <Button Style="{StaticResource TextButton}" Click="OpenFolder_Click" ToolTip="Open this folder in Explorer">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE838;" VerticalAlignment="Center" Margin="0,0,7,0" />
+                                <TextBlock Text="Open folder" />
+                            </StackPanel>
+                        </Button>
+                        <Button Style="{StaticResource TextButton}" Click="OpenFile_Click" ToolTip="Edit any video or audio file">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE8E5;" VerticalAlignment="Center" Margin="0,0,7,0" />
+                                <TextBlock Text="Open file…" />
+                            </StackPanel>
+                        </Button>
+                    </StackPanel>
+                    <StackPanel>
+                        <TextBlock x:Name="FolderTitle" Text="All clips" FontSize="24" FontWeight="SemiBold" />
+                        <TextBlock x:Name="FolderInfo" Margin="0,2,0,0" Style="{StaticResource Hint}" />
+                    </StackPanel>
+                </DockPanel>
+
+                <!-- What to do with the selected clips -->
+                <Border x:Name="SelectionBar" DockPanel.Dock="Top" Background="{StaticResource PanelBrush}" CornerRadius="6" Padding="14,6,8,6"
+                        Margin="0,0,14,14" Visibility="Collapsed">
+                    <DockPanel>
+                        <StackPanel x:Name="SelectionActions" DockPanel.Dock="Right" Orientation="Horizontal">
+                            <Button x:Name="AddToProjectButton" Style="{DynamicResource AccentButtonStyle}" Padding="12,5" Focusable="False"
+                                    Click="AddToProject_Click">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE8F4;" VerticalAlignment="Center" Margin="0,0,7,0" />
+                                    <TextBlock Text="Add to project" />
+                                    <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE70D;" FontSize="10" VerticalAlignment="Center" Margin="8,1,0,0" />
+                                </StackPanel>
+                            </Button>
+                            <Button Style="{StaticResource TextButton}" Margin="8,0,4,0" Click="CopyToFolder_Click"
+                                    ToolTip="Copy the selected clips to a folder of your choice">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE8C8;" VerticalAlignment="Center" Margin="0,0,7,0" />
+                                    <TextBlock Text="Copy to folder…" />
+                                </StackPanel>
+                            </Button>
+                            <Button Style="{StaticResource TextButton}" Content="Select all" Click="SelectAll_Click" ToolTip="Select every clip in this folder" />
+                            <Button Style="{StaticResource TextButton}" Content="Clear" Margin="0" Click="ClearSelection_Click" />
                         </StackPanel>
-                    </Button>
-                    <Button Style="{StaticResource TextButton}" Click="OpenFile_Click" ToolTip="Edit any video or audio file">
-                        <StackPanel Orientation="Horizontal">
-                            <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE8E5;" VerticalAlignment="Center" Margin="0,0,7,0" />
-                            <TextBlock Text="Open file…" />
-                        </StackPanel>
-                    </Button>
-                </StackPanel>
-                <StackPanel>
-                    <TextBlock x:Name="FolderTitle" Text="All clips" FontSize="24" FontWeight="SemiBold" />
-                    <TextBlock x:Name="FolderInfo" Margin="0,2,0,0" Style="{StaticResource Hint}" />
-                </StackPanel>
+                        <TextBlock x:Name="SelectionText" VerticalAlignment="Center" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                    </DockPanel>
+                </Border>
+                <TextBlock x:Name="StatusText" DockPanel.Dock="Top" Style="{StaticResource Hint}" Margin="0,-4,14,12" Visibility="Collapsed" />
+
+                <Grid x:Name="ClipArea" SizeChanged="ClipArea_SizeChanged">
+                    <ItemsControl x:Name="Rows" VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
+                                  VirtualizingPanel.ScrollUnit="Pixel" ScrollViewer.CanContentScroll="True">
+                        <ItemsControl.Template>
+                            <ControlTemplate TargetType="ItemsControl">
+                                <ScrollViewer CanContentScroll="True" Focusable="False" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                                    <ItemsPresenter />
+                                </ScrollViewer>
+                            </ControlTemplate>
+                        </ItemsControl.Template>
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <VirtualizingStackPanel />
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <ItemsControl ItemsSource="{Binding}" ItemTemplate="{StaticResource ClipCard}">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <StackPanel Orientation="Horizontal" />
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                </ItemsControl>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <StackPanel x:Name="EmptyState" VerticalAlignment="Center" HorizontalAlignment="Center" MaxWidth="420" Margin="0,0,0,80"
+                                Visibility="Collapsed">
+                        <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE714;" FontSize="40" HorizontalAlignment="Center"
+                                   Foreground="{StaticResource SubtleText}" />
+                        <TextBlock x:Name="EmptyTitle" Text="No clips yet" FontSize="18" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,14,0,6" />
+                        <TextBlock x:Name="EmptyText" Style="{StaticResource Hint}" TextAlignment="Center" />
+                    </StackPanel>
+                </Grid>
             </DockPanel>
 
-            <Grid x:Name="ClipArea" SizeChanged="ClipArea_SizeChanged">
-                <ItemsControl x:Name="Rows" VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
-                              VirtualizingPanel.ScrollUnit="Pixel" ScrollViewer.CanContentScroll="True">
-                    <ItemsControl.Template>
-                        <ControlTemplate TargetType="ItemsControl">
-                            <ScrollViewer CanContentScroll="True" Focusable="False" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
-                                <ItemsPresenter />
-                            </ScrollViewer>
-                        </ControlTemplate>
-                    </ItemsControl.Template>
-                    <ItemsControl.ItemsPanel>
-                        <ItemsPanelTemplate>
-                            <VirtualizingStackPanel />
-                        </ItemsPanelTemplate>
-                    </ItemsControl.ItemsPanel>
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate>
-                            <ItemsControl ItemsSource="{Binding}" ItemTemplate="{StaticResource ClipCard}">
-                                <ItemsControl.ItemsPanel>
-                                    <ItemsPanelTemplate>
-                                        <StackPanel Orientation="Horizontal" />
-                                    </ItemsPanelTemplate>
-                                </ItemsControl.ItemsPanel>
-                            </ItemsControl>
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
-
-                <StackPanel x:Name="EmptyState" VerticalAlignment="Center" HorizontalAlignment="Center" MaxWidth="420" Margin="0,0,0,80"
-                            Visibility="Collapsed">
-                    <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE714;" FontSize="40" HorizontalAlignment="Center"
-                               Foreground="{StaticResource SubtleText}" />
-                    <TextBlock x:Name="EmptyTitle" Text="No clips yet" FontSize="18" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,14,0,6" />
-                    <TextBlock x:Name="EmptyText" Style="{StaticResource Hint}" TextAlignment="Center" />
-                </StackPanel>
-            </Grid>
-        </DockPanel>
+            <!-- An open project -->
+            <views:ProjectView x:Name="ProjectPane" Visibility="Collapsed" />
+        </Grid>
     </Grid>
 </UserControl>

@@ -13,6 +13,7 @@ public sealed class ClipItem : INotifyPropertyChanged
 {
     private ImageSource? _thumbnail;
     private string _ago = "";
+    private bool _selected;
 
     public ClipItem(FileInfo file, string folder, double? duration)
     {
@@ -50,6 +51,21 @@ public sealed class ClipItem : INotifyPropertyChanged
         set { _thumbnail = value; OnChanged(); }
     }
 
+    /// <summary>Ticked in the gallery, for adding to a project or copying out.</summary>
+    public bool IsSelected
+    {
+        get => _selected;
+        set
+        {
+            if (_selected == value) return;
+            _selected = value;
+            OnChanged();
+            SelectionChanged?.Invoke(this);
+        }
+    }
+
+    public event Action<ClipItem>? SelectionChanged;
+
     public void RefreshAgo() => Ago = TimeAgo.Format(Created, DateTime.Now);
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -74,11 +90,18 @@ internal static class TimeAgo
     private static string Plural(int n, string unit) => n == 1 ? $"1 {unit} ago" : $"{n} {unit}s ago";
 }
 
-/// <summary>Finds clips in the clips folder: each subfolder is a game, files directly inside count as "Desktop".</summary>
+/// <summary>
+/// Finds clips in the clips folder: each subfolder is a game, files directly inside count as "Desktop".
+/// The Projects folder holds montage projects, not more clips.
+/// </summary>
 internal static class ClipLibrary
 {
     public const string AllClips = "All clips";
     private static readonly string[] Extensions = [".mp4", ".mkv", ".mov", ".webm", ".m4v"];
+
+    public static bool IsClipFile(string path) =>
+        Extensions.Contains(System.IO.Path.GetExtension(path), StringComparer.OrdinalIgnoreCase)
+        && !path.Contains(".quickclip-tmp", StringComparison.OrdinalIgnoreCase);
 
     public static List<ClipItem> Scan(string root)
     {
@@ -87,11 +110,11 @@ internal static class ClipLibrary
         var options = new EnumerationOptions { RecurseSubdirectories = true, MaxRecursionDepth = 2, IgnoreInaccessible = true };
         foreach (var path in Directory.EnumerateFiles(root, "*", options))
         {
-            if (!Extensions.Contains(System.IO.Path.GetExtension(path), StringComparer.OrdinalIgnoreCase)) continue;
-            if (path.Contains(".quickclip-tmp", StringComparison.OrdinalIgnoreCase)) continue;
+            if (!IsClipFile(path)) continue;
             var file = new FileInfo(path);
             string relative = System.IO.Path.GetRelativePath(root, file.DirectoryName!);
             string folder = relative == "." ? "Desktop" : relative.Split(System.IO.Path.DirectorySeparatorChar)[0];
+            if (string.Equals(folder, ProjectLibrary.FolderName, StringComparison.OrdinalIgnoreCase)) continue;
             clips.Add(new ClipItem(file, folder, Mp4Info.TryReadDuration(path)));
         }
         return clips.OrderByDescending(c => c.Created).ToList();
@@ -156,6 +179,19 @@ internal static class ThumbnailCache
     private static readonly string Dir = System.IO.Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "QuickClip", "thumbs");
     private static readonly SemaphoreSlim Gate = new(2, 2);
+
+    /// <summary>Reads a cached thumbnail, scaled down to <paramref name="width"/> pixels (call off the UI thread; the image is frozen).</summary>
+    public static ImageSource LoadImage(string path, int width)
+    {
+        var image = new System.Windows.Media.Imaging.BitmapImage();
+        image.BeginInit();
+        image.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+        image.DecodePixelWidth = width;
+        image.UriSource = new Uri(path);
+        image.EndInit();
+        image.Freeze();
+        return image;
+    }
 
     public static string PathFor(FileInfo file)
     {
