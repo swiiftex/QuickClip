@@ -19,20 +19,32 @@ internal static class RecordingPresets
 
     /// <summary>
     /// The center of a monitor with the given aspect ratio ("16:9"), e.g. the 16:9 middle of an ultrawide, or the
-    /// whole monitor for "" or when it already has that shape. Even-sized, as video encoders need.
+    /// whole monitor for "" or when it already has that shape. Widths are multiples of 8 and heights even: video
+    /// encoders need even sizes, and AMD's AV1 encoder pads other widths with columns that weren't captured.
     /// </summary>
     public static RecordingArea Area(int monitorWidth, int monitorHeight, string aspect)
     {
-        var whole = new RecordingArea(0, 0, monitorWidth, monitorHeight);
-        var parts = aspect.Split(':');
-        if (parts.Length != 2 || !int.TryParse(parts[0], out int aw) || !int.TryParse(parts[1], out int ah) || aw <= 0 || ah <= 0
-            || monitorWidth <= 0 || monitorHeight <= 0)
-            return whole;
-        double ratio = aw / (double)ah, monitorRatio = monitorWidth / (double)monitorHeight;
-        if (Math.Abs(monitorRatio / ratio - 1) < 0.01) return whole;
-        int width = monitorRatio > ratio ? (int)(monitorHeight * ratio) & ~1 : monitorWidth & ~1;
-        int height = monitorRatio > ratio ? monitorHeight & ~1 : (int)(monitorWidth / ratio) & ~1;
+        var (aw, ah) = ParseAspect(aspect);
+        int width = monitorWidth, height = monitorHeight;
+        if (aw > 0 && monitorWidth > 0 && monitorHeight > 0)
+        {
+            double ratio = aw / (double)ah, monitorRatio = monitorWidth / (double)monitorHeight;
+            if (Math.Abs(monitorRatio / ratio - 1) >= 0.01)
+            {
+                if (monitorRatio > ratio) width = (int)(monitorHeight * ratio);
+                else height = (int)(monitorWidth / ratio);
+            }
+        }
+        width &= ~7;
+        height &= ~1;
         return new RecordingArea((monitorWidth - width) / 2 & ~1, (monitorHeight - height) / 2 & ~1, width, height);
+    }
+
+    /// <summary>"16:9" as (16, 9); (0, 0) for "" or anything that isn't an aspect ratio.</summary>
+    public static (int Width, int Height) ParseAspect(string aspect)
+    {
+        var parts = aspect.Split(':');
+        return parts.Length == 2 && int.TryParse(parts[0], out int w) && int.TryParse(parts[1], out int h) && w > 0 && h > 0 ? (w, h) : (0, 0);
     }
 
     public static string AreaLabel(string aspect, RecordingArea area, int monitorWidth, int monitorHeight) =>
@@ -69,13 +81,14 @@ internal static class RecordingPresets
         return (int)Math.Clamp(av1Mbps1080p60 * scale * codec * 1000, 1500, 250_000);
     }
 
-    /// <summary>Output size for a short-side limit, keeping the recorded area's aspect ratio (even numbers).</summary>
+    /// <summary>Output size for a short-side limit, keeping the recorded area's aspect ratio (a width that's a
+    /// multiple of 8 and an even height, as for <see cref="Area"/>).</summary>
     public static (int Width, int Height) OutputSize(int areaWidth, int areaHeight, int shortSide)
     {
         int shortest = Math.Min(areaWidth, areaHeight);
         if (shortSide <= 0 || shortSide >= shortest) return (areaWidth, areaHeight);
         double s = shortSide / (double)shortest;
-        return ((int)Math.Round(areaWidth * s / 2) * 2, (int)Math.Round(areaHeight * s / 2) * 2);
+        return ((int)Math.Round(areaWidth * s / 8) * 8, (int)Math.Round(areaHeight * s / 2) * 2);
     }
 
     /// <summary>Desktop, plus Chat, Music and Mic when they're on.</summary>

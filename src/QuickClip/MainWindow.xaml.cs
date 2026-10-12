@@ -245,7 +245,7 @@ public partial class MainWindow : Window
         Recorder.Instance.StateChanged -= OnRecorderState;
         Updater.Changed -= OnUpdaterChanged;
         base.OnClosed(e);
-        ((App)Application.Current).OnMainWindowClosed();
+        ((App)Application.Current).OnMainWindowClosed(this);
     }
 
     private static T Freeze<T>(T f) where T : Freezable { f.Freeze(); return f; }

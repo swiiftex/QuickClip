@@ -46,7 +46,7 @@ public sealed class UpdaterTests
     [Fact]
     public void Current_version_comes_from_the_project()
     {
-        Assert.Equal(V("0.4.0"), AppVersion.Current);
+        Assert.Equal(V("0.4.1"), AppVersion.Current);
     }
 
     private const string Releases = """

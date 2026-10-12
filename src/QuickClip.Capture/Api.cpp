@@ -1,6 +1,7 @@
 // C API used by the QuickClip app (see QuickClip/Recording/CaptureEngine.cs).
 #include "Engine.h"
 
+#include <condition_variable>
 #include <cstdarg>
 #include <cstdio>
 #include <shared_mutex>
@@ -8,7 +9,28 @@
 namespace
 {
     typedef void(__stdcall* LogCallback)(const char* message);
-    LogCallback g_log = nullptr;
+    std::atomic<LogCallback> g_log{ nullptr };
+
+    // Messages go to the app from one thread of their own, so capture and audio threads never wait on it.
+    std::mutex g_logLock;
+    std::condition_variable g_logReady;
+    std::deque<std::string> g_logQueue;
+    bool g_logThreadStarted = false;
+
+    void LogThread()
+    {
+        while (true)
+        {
+            std::string message;
+            {
+                std::unique_lock lock(g_logLock);
+                g_logReady.wait(lock, [] { return !g_logQueue.empty(); });
+                message = std::move(g_logQueue.front());
+                g_logQueue.pop_front();
+            }
+            if (auto callback = g_log.load()) callback(message.c_str());
+        }
+    }
 
     std::shared_mutex g_engineLock;   // Save holds it shared; start/stop exclusively
     std::unique_ptr<qc::Engine> g_engine;
@@ -41,7 +63,12 @@ namespace qc
         va_start(args, format);
         vsnprintf(buffer, sizeof buffer, format, args);
         va_end(args);
-        g_log(buffer);
+        {
+            std::lock_guard lock(g_logLock);
+            if (g_logQueue.size() >= 1000) return; // something is flooding the log; drop rather than grow
+            g_logQueue.emplace_back(buffer);
+        }
+        g_logReady.notify_one();
     }
 
     std::string AvError(int err)
@@ -75,6 +102,14 @@ extern "C"
     __declspec(dllexport) void qc_set_log(LogCallback callback)
     {
         g_log = callback;
+        {
+            std::lock_guard lock(g_logLock);
+            if (callback && !g_logThreadStarted)
+            {
+                g_logThreadStarted = true;
+                std::thread(LogThread).detach();
+            }
+        }
         av_log_set_callback(callback ? FfmpegLog : av_log_default_callback);
     }
 
@@ -116,6 +151,24 @@ extern "C"
         if (!g_engine) return;
         auto list = [](const uint32_t* pids, int count) { return std::vector<DWORD>(pids, pids + (pids && count > 0 ? count : 0)); };
         g_engine->SetAudioProcesses(desktopExclude, list(desktopInclude, desktopCount), list(chat, chatCount), list(music, musicCount));
+    }
+
+    __declspec(dllexport) void qc_restart_video()
+    {
+        std::shared_lock guard(g_engineLock);
+        if (g_engine) g_engine->RequestRebuild();
+    }
+
+    __declspec(dllexport) void qc_test_freeze_video(int milliseconds)
+    {
+        std::shared_lock guard(g_engineLock);
+        if (g_engine) g_engine->TestFreezeVideo(milliseconds);
+    }
+
+    __declspec(dllexport) void qc_test_flat_below(int bytes)
+    {
+        std::shared_lock guard(g_engineLock);
+        if (g_engine) g_engine->TestFlatBelow(bytes);
     }
 
     __declspec(dllexport) int qc_save(const wchar_t* path, int seconds, const wchar_t* title, wchar_t* error, int errorLength)

@@ -14,8 +14,7 @@ internal static class CaptureEngine
         public int Fps;
         public int OutWidth;
         public int OutHeight;
-        public int CropX, CropY;
-        public int CropWidth, CropHeight;
+        public int AspectWidth, AspectHeight;
         public IntPtr Encoder;
         public int VideoKbps;
         public int AudioKbps;
@@ -88,9 +87,10 @@ internal static class CaptureEngine
         return buffer.Take(Math.Min(n, buffer.Length)).ToList();
     }
 
-    /// <param name="area">The part of the monitor to record.</param>
+    /// <param name="aspect">Record only the centered part of the monitor with this shape ("16:9"), or "" for all of it.
+    /// The engine works the area out itself, again after a display change.</param>
     /// <param name="outWidth">Size to scale the area to, or 0 for its native size.</param>
-    public static string? Start(string monitorDevice, RecordingArea area, int fps, int outWidth, int outHeight, string encoder, int videoKbps,
+    public static string? Start(string monitorDevice, string aspect, int fps, int outWidth, int outHeight, string encoder, int videoKbps,
         int audioKbps, int bufferSeconds, bool cursor, bool splitChat, bool splitMusic, bool mic, string? micDeviceId)
     {
         var strings = new List<IntPtr>();
@@ -103,10 +103,8 @@ internal static class CaptureEngine
                 Fps = fps,
                 OutWidth = outWidth,
                 OutHeight = outHeight,
-                CropX = area.X,
-                CropY = area.Y,
-                CropWidth = area.Width,
-                CropHeight = area.Height,
+                AspectWidth = RecordingPresets.ParseAspect(aspect).Width,
+                AspectHeight = RecordingPresets.ParseAspect(aspect).Height,
                 Encoder = Marshal.StringToHGlobalAnsi(encoder),
                 VideoKbps = videoKbps,
                 AudioKbps = audioKbps,
@@ -128,6 +126,15 @@ internal static class CaptureEngine
     }
 
     public static void Stop() => qc_stop();
+
+    /// <summary>Starts screen capture again (the display changed, so the running capture may have gone stale).</summary>
+    public static void RestartVideo() => qc_restart_video();
+
+    /// <summary>Tests: makes the capture thread hang, the way a stuck capture call would.</summary>
+    internal static void TestFreezeVideo(int milliseconds) => qc_test_freeze_video(milliseconds);
+
+    /// <summary>Tests: counts keyframes smaller than this many bytes as a flat (black) picture.</summary>
+    internal static void TestFlatBelow(int bytes) => qc_test_flat_below(bytes);
 
     /// <summary>Which apps each track records; see <see cref="AudioRouting"/> for Desktop.</summary>
     public static void SetAudioProcesses(AudioRouting.Desktop desktop, IReadOnlyList<uint> chat, IReadOnlyList<uint> music) =>
@@ -151,6 +158,9 @@ internal static class CaptureEngine
     [DllImport(Dll)] private static extern int qc_enum_microphones([Out] AudioDevice[] devices, int max);
     [DllImport(Dll, CharSet = CharSet.Unicode)] private static extern int qc_start(ref Config config, [Out] char[] error, int errorLength);
     [DllImport(Dll)] private static extern void qc_stop();
+    [DllImport(Dll)] private static extern void qc_restart_video();
+    [DllImport(Dll)] private static extern void qc_test_freeze_video(int milliseconds);
+    [DllImport(Dll)] private static extern void qc_test_flat_below(int bytes);
     [DllImport(Dll)] private static extern void qc_set_audio_processes(uint desktopExclude, uint[] desktopInclude, int desktopCount,
         uint[] chat, int chatCount, uint[] music, int musicCount);
     [DllImport(Dll, CharSet = CharSet.Unicode)] private static extern int qc_save(string path, int seconds, string title, [Out] char[] error, int errorLength);

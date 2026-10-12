@@ -16,8 +16,7 @@ extern "C"
         int fps;
         int outWidth;                   // 0 = the recorded area's native size
         int outHeight;
-        int cropX, cropY;               // recorded area within the monitor (cropWidth 0 = the whole monitor)
-        int cropWidth, cropHeight;
+        int aspectWidth, aspectHeight;  // record only the centered part with this shape (0 = the whole monitor)
         const char* encoder;            // FFmpeg encoder name, e.g. av1_amf
         int videoKbps;
         int audioKbps;
@@ -110,11 +109,19 @@ namespace qc
             const std::vector<DWORD>& chat, const std::vector<DWORD>& music);
         bool Save(const std::wstring& path, int seconds, const std::wstring& title, std::string& error);
         void GetStats(QcStats& stats);
+        /// Starts capture again on the next frame (the display changed; the old capture may be stale).
+        void RequestRebuild();
+        /// Tests: makes the capture thread hang for this long, as a stuck capture call would.
+        void TestFreezeVideo(int ms);
+        /// Tests: counts keyframes smaller than this as a flat picture (0 = the normal limit).
+        void TestFlatBelow(int bytes);
 
         struct Shared;
 
     private:
         void AudioLoop();
+        void WatchLoop();
+        void RestartVideo();
 
         std::shared_ptr<Shared> shared_;
         std::wstring monitor_;
@@ -145,7 +152,7 @@ namespace qc
         std::map<SourceKey, std::unique_ptr<AudioSource>> sources_;
         std::unique_ptr<AudioSource> micSource_;
 
-        std::thread videoThread_, audioThread_;
+        std::thread videoThread_, audioThread_, watchThread_;
     };
 
     int EnumOutputs(QcOutput* outputs, int max);

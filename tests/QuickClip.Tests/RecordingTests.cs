@@ -30,6 +30,7 @@ public sealed class RecordingPresetTests
     [InlineData(5120, 1440, 1080, 3840, 1080)]
     [InlineData(1080, 1920, 720, 720, 1280)]   // portrait monitor
     [InlineData(1920, 1080, 1440, 1920, 1080)] // never upscale
+    [InlineData(2264, 1274, 720, 1280, 720)]   // widths stay multiples of 8
     public void Output_size_keeps_aspect_and_even_dimensions(int w, int h, int shortSide, int ew, int eh) =>
         Assert.Equal((ew, eh), RecordingPresets.OutputSize(w, h, shortSide));
 
@@ -42,6 +43,8 @@ public sealed class RecordingPresetTests
     [InlineData(2560, 1440, "16:9", 0, 0, 2560, 1440)]      // already 16:9
     [InlineData(5120, 1440, "", 0, 0, 5120, 1440)]          // whole monitor
     [InlineData(5120, 1440, "wide", 0, 0, 5120, 1440)]      // not an aspect ratio
+    [InlineData(3840, 1600, "16:9", 500, 0, 2840, 1600)]    // widths are multiples of 8
+    [InlineData(2268, 1491, "", 2, 0, 2264, 1490)]          // even for the whole monitor
     public void Recorded_area_is_the_centered_aspect_ratio(int mw, int mh, string aspect, int x, int y, int w, int h) =>
         Assert.Equal(new RecordingArea(x, y, w, h), RecordingPresets.Area(mw, mh, aspect));
 

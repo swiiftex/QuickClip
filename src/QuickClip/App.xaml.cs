@@ -13,6 +13,10 @@ public partial class App : Application
 
     private bool _quitting;
 
+    // The window, tracked here rather than through Application.MainWindow, which WPF can point at another window
+    // (and then a second QuickClip window would open beside this one).
+    private QuickClip.MainWindow? _main;
+
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
@@ -79,7 +83,7 @@ public partial class App : Application
         Host.UpdateRequested += () =>
         {
             ShowMain();
-            (MainWindow as QuickClip.MainWindow)?.ShowSettings();
+            _main?.ShowSettings();
         };
         Host.QuitRequested += Quit;
         Host.Start();
@@ -99,7 +103,7 @@ public partial class App : Application
             AppSettings.SaveDisabled = true;
             ShowMain();
 
-            var window = (QuickClip.MainWindow)MainWindow;
+            var window = _main!;
             Dispatcher.BeginInvoke(async () =>
             {
                 try { await window.RenderPagesAsync(render["--render=".Length..], file); }
@@ -121,7 +125,7 @@ public partial class App : Application
         Dispatcher.BeginInvoke(async () =>
         {
             await Task.Delay(6000);
-            if (MainWindow == null) TrimMemory();
+            if (_main == null) TrimMemory();
         });
 
     private static void TrimMemory()
@@ -153,9 +157,9 @@ public partial class App : Application
     internal void ShowMain(string? file = null)
     {
         if (_quitting) return;
-        if (MainWindow is not QuickClip.MainWindow window || !window.IsLoaded)
+        if (_main is not { IsLoaded: true } window)
         {
-            window = new QuickClip.MainWindow();
+            window = _main = new QuickClip.MainWindow();
             MainWindow = window;
             window.Show();
         }
@@ -169,8 +173,10 @@ public partial class App : Application
     }
 
     /// <summary>Called when the window closes: keep running in the tray, or quit.</summary>
-    internal void OnMainWindowClosed()
+    internal void OnMainWindowClosed(QuickClip.MainWindow window)
     {
+        if (window != _main) return; // not the window QuickClip is using
+        _main = null;
         MainWindow = null;
         if (_quitting || !AppSettings.Current.CloseToTray)
         {
@@ -191,7 +197,7 @@ public partial class App : Application
     {
         if (_quitting) return true;
         _quitting = true;
-        if (MainWindow is QuickClip.MainWindow window && window.IsLoaded && !await window.RequestCloseAsync())
+        if (_main is { IsLoaded: true } window && !await window.RequestCloseAsync())
         {
             _quitting = false; // the user kept the window open
             return false;
@@ -199,6 +205,7 @@ public partial class App : Application
         await Recorder.Instance.StopAsync();
         Host?.Dispose();
         AppSettings.Current.Save();
+        Log.Flush();
         beforeExit?.Invoke();
         Shutdown(0);
         return true;

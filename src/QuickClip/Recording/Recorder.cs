@@ -1,3 +1,4 @@
+using Microsoft.Win32;
 using QuickClip.Media;
 using QuickClip.Shell;
 
@@ -32,6 +33,24 @@ internal sealed class Recorder
     public event Action<string>? SaveFailed;
 
     public RecorderState State => new(IsRunning, Error, _summary, _chatApps, _musicApps);
+
+    private Recorder()
+    {
+        // A display change (a resolution change, a game switching modes) or a sleep can leave the screen capture
+        // stale, sending black frames or none; start it again. The replay buffer is kept.
+        SystemEvents.DisplaySettingsChanged += (_, _) => RestartCapture("the display settings changed");
+        SystemEvents.PowerModeChanged += (_, e) =>
+        {
+            if (e.Mode == PowerModes.Resume) RestartCapture("the PC woke from sleep");
+        };
+    }
+
+    private void RestartCapture(string why)
+    {
+        if (!IsRunning) return;
+        Log.Write($"Starting screen capture again: {why}");
+        CaptureEngine.RestartVideo();
+    }
 
     /// <summary>(Re)starts recording from the current settings, or stops it if recording is turned off.</summary>
     public Task ApplySettingsAsync() => Task.Run(() =>
@@ -82,14 +101,14 @@ internal sealed class Recorder
             }
 
             var area = RecordingPresets.Area(monitor.Width, monitor.Height, s.RecordAspect);
-            bool cropped = area.Width != monitor.Width || area.Height != monitor.Height;
+            bool cropped = s.RecordAspect != "" && (area.Width != monitor.Width || area.Height != monitor.Height);
             var (w, h) = RecordingPresets.OutputSize(area.Width, area.Height, s.RecordResolution);
             bool scaled = w != area.Width || h != area.Height;
             string family = VideoEncoders.Find(encoder)?.Family ?? "h264";
             VideoKbps = RecordingPresets.VideoKbps(s.RecordQuality, w, h, s.RecordFps, family);
             AudioTracks = RecordingPresets.AudioTrackCount(s);
 
-            Error = CaptureEngine.Start(monitor.DeviceName, area, s.RecordFps, scaled ? w : 0, scaled ? h : 0, encoder, VideoKbps,
+            Error = CaptureEngine.Start(monitor.DeviceName, s.RecordAspect, s.RecordFps, scaled ? w : 0, scaled ? h : 0, encoder, VideoKbps,
                 RecordingPresets.AudioKbps, s.BufferSeconds, s.CaptureCursor, s.SplitChatAudio, s.SplitMusicAudio, s.RecordMic,
                 string.IsNullOrEmpty(s.MicDeviceId) ? null : s.MicDeviceId);
             if (Error != null) return;

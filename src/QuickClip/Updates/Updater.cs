@@ -200,7 +200,7 @@ internal static class Updater
         function Note($text) { Add-Content -Path $log -Value ("{0:yyyy-MM-dd HH:mm:ss.fff} update: {1}" -f (Get-Date), $text) -ErrorAction SilentlyContinue }
         Wait-Process -Id $ProcessId -Timeout 60 -ErrorAction SilentlyContinue
         Start-Sleep -Milliseconds 500
-        robocopy $Source $Target /E /R:20 /W:1 /NFL /NDL /NJH /NJS /NP | Out-Null
+        robocopy $Source $Target /E /IS /IT /R:20 /W:1 /NFL /NDL /NJH /NJS /NP | Out-Null
         if ($LASTEXITCODE -lt 8) { Note "installed into $Target" } else { Note "copying failed (robocopy $LASTEXITCODE)" }
         $exe = Join-Path $Target 'QuickClip.exe'
         if ($Restart -eq 'tray') { Start-Process -FilePath $exe -ArgumentList '--tray' }
