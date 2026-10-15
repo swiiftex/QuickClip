@@ -31,7 +31,13 @@ internal sealed record ExportRequest
     public double Duration => End - Start;
 }
 
-internal sealed record TrackExport(int StreamIndex, string Codec, int Channels, long BitRate, string Name, double Volume);
+internal sealed record TrackExport(int StreamIndex, string Codec, int Channels, long BitRate, string Name, double Volume)
+{
+    /// <summary>An added sound's file (its stream is <see cref="StreamIndex"/>), or null for one of the clip's own tracks.</summary>
+    public string? SoundPath { get; init; }
+    /// <summary>Where an added sound starts on the clip's timeline, in seconds.</summary>
+    public double Offset { get; init; }
+}
 
 internal static class ExportBuilder
 {
@@ -73,6 +79,18 @@ internal static class ExportBuilder
         // ---- Audio ----------------------------------------------------------------------
         List<TrackExport> tracks = c.IsGif ? [] : [.. r.Tracks];
         long audioBits = 0;
+        // Added sounds are further inputs, placed on the clip's timeline by filters.
+        var input = new int[tracks.Count];
+        var soundInputs = new List<string>();
+        for (int i = 0; i < tracks.Count; i++)
+            if (tracks[i].SoundPath is { } sound)
+            {
+                soundInputs.Add(sound);
+                input[i] = soundInputs.Count;
+            }
+        string Source(int i) => input[i] == 0 ? $"[0:{tracks[i].StreamIndex}]"
+            : $"[{input[i]}:{tracks[i].StreamIndex}]{AddedSound.Placement(tracks[i].Offset, r.Start, r.Duration)},";
+
         if (tracks.Count > 0)
         {
             bool merge = tracks.Count > 1 && (r.MergeAudio || c.SingleAudioTrack);
@@ -84,7 +102,7 @@ internal static class ExportBuilder
                 var labels = new StringBuilder();
                 for (int i = 0; i < tracks.Count; i++)
                 {
-                    graph.Add($"[0:{tracks[i].StreamIndex}]volume={F(tracks[i].Volume)},aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[am{i}]");
+                    graph.Add($"{Source(i)}volume={F(tracks[i].Volume)},aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[am{i}]");
                     labels.Append($"[am{i}]");
                 }
                 graph.Add($"{labels}amix=inputs={tracks.Count}:normalize=0:duration=longest:dropout_transition=0[aout]");
@@ -98,7 +116,7 @@ internal static class ExportBuilder
                 for (int o = 0; o < tracks.Count; o++)
                 {
                     var t = tracks[o];
-                    bool unchanged = Math.Abs(t.Volume - 1) < 0.001;
+                    bool unchanged = Math.Abs(t.Volume - 1) < 0.001 && t.SoundPath == null;
                     if (unchanged && c.CanCopyAudio(t.Codec))
                     {
                         outArgs.AddRange(["-map", $"0:{t.StreamIndex}", $"-c:a:{o}", "copy"]);
@@ -110,10 +128,10 @@ internal static class ExportBuilder
                             outArgs.AddRange(["-map", $"0:{t.StreamIndex}"]);
                         else
                         {
-                            graph.Add($"[0:{t.StreamIndex}]volume={F(t.Volume)}[a{o}]");
+                            graph.Add($"{Source(o)}volume={F(t.Volume)}[a{o}]");
                             outArgs.AddRange(["-map", $"[a{o}]"]);
                         }
-                        AddAudioCodec(outArgs, o, encoder, lossless, r.AudioBitrateK, t.Channels);
+                        AddAudioCodec(outArgs, o, encoder, lossless, r.AudioBitrateK, t.SoundPath != null ? 2 : t.Channels);
                         audioBits += lossless ? 0 : r.AudioBitrateK * 1000L;
                     }
                     AddTitle(outArgs, o, t.Name);
@@ -128,6 +146,7 @@ internal static class ExportBuilder
         if (r.Quality == "size" && wantVideo && r.VideoMode == VideoMode.Encode && !c.IsGif)
             ApplyTargetSize(r, outArgs, audioBits);
 
+        foreach (var sound in soundInputs) args.AddRange(["-i", sound]);
         if (graph.Count > 0) args.AddRange(["-filter_complex", string.Join(";", graph)]);
         args.AddRange(outArgs);
         args.AddRange(["-map_metadata", "0", "-map_chapters", "-1"]);

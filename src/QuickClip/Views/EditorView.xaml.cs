@@ -34,6 +34,16 @@ public partial class EditorView : UserControl
     private readonly ObservableCollection<AudioTrack> _tracks = [];
     private readonly DispatcherTimer _childWindowTimer;
     private readonly DispatcherTimer _audioSyncTimer;
+    private readonly DispatcherTimer _soundPreviewTimer;
+    private List<AudioTrack> _previewTracks = [];   // the tracks mpv is playing, in its track order
+    private readonly List<string> _stalePreviews = [];
+    private CancellationTokenSource? _soundCts;
+
+    // Added sounds are previewed from copies already placed on the clip's timeline.
+    private static readonly string SoundPreviewDir = Path.Combine(Path.GetTempPath(), "QuickClip", "sound previews");
+    private static readonly HashSet<string> AudioExtensions = new(
+        [".mp3", ".wav", ".flac", ".m4a", ".aac", ".ogg", ".oga", ".opus", ".wma", ".aif", ".aiff", ".ac3", ".eac3", ".dts",
+         ".mka", ".amr", ".ape", ".wv", ".caf", ".alac", ".mp2", ".m4b"], StringComparer.OrdinalIgnoreCase);
 
     private MpvPlayer? _player;
     private PreviewAudio? _previewAudio;
@@ -97,11 +107,15 @@ public partial class EditorView : UserControl
             (_, _) => Video.DisableChildWindows(), Dispatcher);
         _audioSyncTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(300), DispatcherPriority.Background,
             (_, _) => SyncPreviewAudio(), Dispatcher) { IsEnabled = false };
+        // A moved sound is placed again for the preview once it has stayed put for a moment.
+        _soundPreviewTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(350), DispatcherPriority.Background,
+            (_, _) => RenderSoundPreviews(), Dispatcher) { IsEnabled = false };
 
         PreviewKeyDown += OnPreviewKeyDown;
         PreviewMouseDown += OnPreviewMouseDown;
         Drop += OnDrop;
         DragOver += OnDragOver;
+        DragLeave += OnDragLeave;
         Loaded += OnLoaded;
 
         foreach (var combo in new[] { AspectCombo, FormatCombo, VideoModeCombo, EncoderCombo, QualityCombo, ResolutionCombo, FpsCombo, AudioBitrateCombo })
@@ -132,6 +146,7 @@ public partial class EditorView : UserControl
         }
         _childWindowTimer.Start();
         ShowMessage("Open a video or drop it here");
+        _ = Task.Run(() => DeletePreviews(olderThan: TimeSpan.FromDays(1)));
 
         LoopToggle.IsChecked = _settings.Loop;
         MergeCheck.IsChecked = _settings.MergeAudio;
@@ -163,8 +178,10 @@ public partial class EditorView : UserControl
         _closed = true;
         SaveSettings();
         _waveCts?.Cancel();
+        _soundCts?.Cancel();
         _childWindowTimer.Stop();
         _audioSyncTimer.Stop();
+        _soundPreviewTimer.Stop();
 
         // mpv tears down its child window during shutdown, which needs this thread to keep pumping.
         var player = _player;
@@ -172,6 +189,7 @@ public partial class EditorView : UserControl
         _previewAudio = null;
         if (player != null) await Task.Run(player.Dispose);
         if (_exportPath != null) TryDelete(_exportPath);
+        foreach (var file in _stalePreviews.Concat(_tracks.Select(t => t.PreviewFile).OfType<string>())) TryDelete(file);
         return true;
     }
 
@@ -219,14 +237,49 @@ public partial class EditorView : UserControl
 
     private void OnDragOver(object sender, DragEventArgs e)
     {
-        e.Effects = e.Data.GetDataPresent(DataFormats.FileDrop) ? DragDropEffects.Copy : DragDropEffects.None;
+        bool files = e.Data.GetDataPresent(DataFormats.FileDrop);
+        e.Effects = files ? DragDropEffects.Copy : DragDropEffects.None;
+        bool sounds = files && DropAddsSounds(e);
+        SoundDropHint.Visibility = sounds ? Visibility.Visible : Visibility.Collapsed;
+        if (sounds) SoundDropText.Text = DropOverLanes(e, out double t) ? $"Drop to add as a sound starting at {Fmt.Time(t)}" : "Drop to add as a sound at the playhead";
         e.Handled = true;
+    }
+
+    private void OnDragLeave(object sender, DragEventArgs e)
+    {
+        var p = e.GetPosition(this);
+        if (p.X <= 0 || p.Y <= 0 || p.X >= ActualWidth || p.Y >= ActualHeight) SoundDropHint.Visibility = Visibility.Collapsed;
     }
 
     private async void OnDrop(object sender, DragEventArgs e)
     {
-        if (e.Data.GetData(DataFormats.FileDrop) is string[] { Length: > 0 } files && CanOpenAnother())
-            await OpenFileAsync(files[0]);
+        SoundDropHint.Visibility = Visibility.Collapsed;
+        if (e.Data.GetData(DataFormats.FileDrop) is not string[] { Length: > 0 } files) return;
+        if (DropAddsSounds(e))
+        {
+            await AddSoundsAsync(files, DropOverLanes(e, out double t) ? t : SoundStart());
+            return;
+        }
+        if (CanOpenAnother()) await OpenFileAsync(files[0]);
+    }
+
+    /// <summary>With a clip open, audio files dropped anywhere, and any file dropped on the tracks, become added sounds.</summary>
+    private bool DropAddsSounds(DragEventArgs e) =>
+        _media != null && e.Data.GetData(DataFormats.FileDrop) is string[] { Length: > 0 } files
+        && (IsOver(TracksArea, e) || files.All(f => AudioExtensions.Contains(Path.GetExtension(f))));
+
+    /// <summary>Whether the drop is over the timeline or the waveforms, and the time there.</summary>
+    private bool DropOverLanes(DragEventArgs e, out double time)
+    {
+        double x = e.GetPosition(Timeline).X;
+        time = _timeline.XToTime(x, Timeline.ActualWidth);
+        return IsOver(TracksArea, e) && x >= 0 && x <= Timeline.ActualWidth;
+    }
+
+    private static bool IsOver(FrameworkElement element, DragEventArgs e)
+    {
+        var p = e.GetPosition(element);
+        return p.X >= 0 && p.Y >= 0 && p.X <= element.ActualWidth && p.Y <= element.ActualHeight;
     }
 
     private async Task OpenFileAsync(string path)
@@ -265,7 +318,15 @@ public partial class EditorView : UserControl
             FileNameText.ToolTip = path;
             FileInfoText.Text = info.Summary;
 
-            foreach (var t in _tracks) t.Changed -= OnTrackChanged;
+            _soundCts?.Cancel();
+            _soundPreviewTimer.Stop();
+            foreach (var t in _tracks)
+            {
+                t.Changed -= OnTrackChanged;
+                t.Moved -= OnSoundMoved;
+                t.RemoveRequested -= RemoveSound;
+                if (t.PreviewFile != null) _stalePreviews.Add(t.PreviewFile);
+            }
             _tracks.Clear();
             foreach (var a in info.Audio)
             {
@@ -273,12 +334,7 @@ public partial class EditorView : UserControl
                 track.Changed += OnTrackChanged;
                 _tracks.Add(track);
             }
-            AudioHeader.Text = _tracks.Count switch
-            {
-                0 => "NO AUDIO TRACKS",
-                1 => "AUDIO TRACK",
-                _ => $"AUDIO TRACKS ({_tracks.Count})",
-            };
+            UpdateTrackHeader();
 
             _eof = false;
             _timeline.Reset(info.Duration);
@@ -291,6 +347,8 @@ public partial class EditorView : UserControl
             if (_player != null)
             {
                 _player.Command("stop");
+                _player.SetList("audio-files", []);
+                _player.SetProperty("start", "none");
                 ConfigurePreviewAudio();
                 _player.SetProperty("pause", true);
                 _player.CommandAsync("loadfile", path, "replace");
@@ -311,25 +369,212 @@ public partial class EditorView : UserControl
     private void StartWaveforms()
     {
         if (_media == null) return;
-        var cts = new CancellationTokenSource();
-        _waveCts = cts;
-        string file = _media.Path;
-        foreach (var track in _tracks)
+        _waveCts = new CancellationTokenSource();
+        foreach (var track in _tracks) StartWaveform(track, _media.Path);
+    }
+
+    private void StartWaveform(AudioTrack t, string file)
+    {
+        var token = _waveCts?.Token ?? CancellationToken.None;
+        _ = Task.Run(async () =>
         {
-            var t = track;
-            _ = Task.Run(async () =>
+            try
             {
-                try
-                {
-                    await Waveform.ExtractAsync(file, t.Info.Index, t.Waveform,
-                        () => Dispatcher.BeginInvoke(t.NotifyWaveformUpdated, DispatcherPriority.Background), cts.Token);
-                }
-                catch (Exception ex) when (ex is not OperationCanceledException)
-                {
-                    Log.Write($"Waveform for track {t.Number} failed: {ex}");
-                }
-            });
+                await Waveform.ExtractAsync(file, t.Info.Index, t.Waveform,
+                    () => Dispatcher.BeginInvoke(t.NotifyWaveformUpdated, DispatcherPriority.Background), token);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                Log.Write($"Waveform for track {t.Number} failed: {ex}");
+            }
+        });
+    }
+
+    private void UpdateTrackHeader() => AudioHeader.Text = _tracks.Count switch
+    {
+        0 => "NO AUDIO TRACKS",
+        1 => "AUDIO TRACK",
+        _ => $"AUDIO TRACKS ({_tracks.Count})",
+    };
+
+    // ------------------------------------------------------------------------------------------
+    // Added sounds: other files' audio as more tracks, each starting anywhere on the clip's timeline
+    // ------------------------------------------------------------------------------------------
+
+    /// <summary>Where a sound added without a drop position starts: the playhead, or the beginning when that's at the end.</summary>
+    private double SoundStart() => _timeline.Position >= _timeline.Duration - 0.05 ? 0 : _timeline.Position;
+
+    private async void AddSound_Click(object sender, RoutedEventArgs e)
+    {
+        if (_media == null) return;
+        var audio = string.Join(";", AudioExtensions.Select(x => "*" + x));
+        var video = string.Join(";", ShellIntegration.Extensions.Where(x => !AudioExtensions.Contains(x)).Select(x => "*" + x));
+        var dlg = new OpenFileDialog
+        {
+            Title = "Add a sound",
+            Filter = $"Sounds and music|{audio}|Videos (adds their sound)|{video}|All files|*.*",
+            Multiselect = true,
+            InitialDirectory = _settings.SoundFolder ?? Environment.GetFolderPath(Environment.SpecialFolder.MyMusic),
+        };
+        if (dlg.ShowDialog(OwnerWindow) != true) return;
+        _settings.SoundFolder = Path.GetDirectoryName(dlg.FileNames[0]);
+        await AddSoundsAsync(dlg.FileNames, SoundStart());
+    }
+
+    private async Task AddSoundsAsync(IReadOnlyList<string> paths, double start)
+    {
+        var media = _media;
+        if (media == null) return;
+        foreach (var path in paths)
+        {
+            MediaInfo info;
+            try
+            {
+                Mouse.OverrideCursor = Cursors.AppStarting;
+                info = await MediaInfo.ProbeAsync(Path.GetFullPath(path));
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(OwnerWindow, $"Couldn't add \"{Path.GetFileName(path)}\":\n\n{ex.Message}", "QuickClip", MessageBoxButton.OK, MessageBoxImage.Warning);
+                continue;
+            }
+            finally
+            {
+                Mouse.OverrideCursor = null;
+            }
+            if (_media != media) return; // another file was opened meanwhile
+            if (info.Audio.Count == 0 || info.Duration <= 0)
+            {
+                MessageBox.Show(OwnerWindow, $"\"{Path.GetFileName(path)}\" has no sound to add.", "QuickClip", MessageBoxButton.OK, MessageBoxImage.Information);
+                continue;
+            }
+
+            var a = info.Audio[0];
+            var stream = new AudioStreamInfo
+            {
+                Index = a.Index, Ordinal = _tracks.Count, Codec = a.Codec, Channels = a.Channels, ChannelLayout = a.ChannelLayout,
+                SampleRate = a.SampleRate, BitRate = a.BitRate, Language = a.Language, Title = Path.GetFileNameWithoutExtension(path),
+            };
+            var track = AudioTrack.ForSound(info.Path, stream, info.Duration, _timeline, start);
+            track.Changed += OnTrackChanged;
+            track.Moved += OnSoundMoved;
+            track.RemoveRequested += RemoveSound;
+            _tracks.Add(track);
+            StartWaveform(track, info.Path);
+            Log.Write($"Added the sound {info.Path} at {Fmt.Time(track.Offset)}");
         }
+        UpdateTrackHeader();
+        UpdateUiState();
+        RenderSoundPreviews();
+    }
+
+    private void RemoveSound_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: AudioTrack t }) RemoveSound(t);
+    }
+
+    private void RemoveSound(AudioTrack track)
+    {
+        if (!track.IsSound || !_tracks.Remove(track)) return;
+        track.Changed -= OnTrackChanged;
+        track.Moved -= OnSoundMoved;
+        track.RemoveRequested -= RemoveSound;
+        if (track.PreviewFile != null) _stalePreviews.Add(track.PreviewFile);
+        UpdateTrackHeader();
+        UpdateUiState();
+        if (_previewTracks.Contains(track)) ReloadPreview();
+    }
+
+    private void OnSoundMoved(AudioTrack track)
+    {
+        UpdateSummary();
+        _soundPreviewTimer.Stop();
+        _soundPreviewTimer.Start();
+    }
+
+    /// <summary>Places every new or moved sound for the preview, then plays them along with the clip.</summary>
+    private async void RenderSoundPreviews()
+    {
+        _soundPreviewTimer.Stop();
+        if (_media == null) return;
+        var pending = _tracks.Where(t => t.IsSound && (t.PreviewFile == null || t.PreviewOffset != t.Offset)).ToList();
+        if (pending.Count == 0) return;
+        _soundCts?.Cancel();
+        var cts = new CancellationTokenSource();
+        _soundCts = cts;
+        double duration = _media.Duration;
+        try
+        {
+            Directory.CreateDirectory(SoundPreviewDir);
+            var placed = await Task.WhenAll(pending.Select(async t =>
+            {
+                double offset = t.Offset;
+                string file = Path.Combine(SoundPreviewDir, $"{Guid.NewGuid():N}.flac");
+                await AddedSound.RenderPreviewAsync(t.SoundPath!, t.Info.Index, offset, duration, file, cts.Token);
+                return (Track: t, File: file, Offset: offset);
+            }));
+            if (cts.IsCancellationRequested)
+            {
+                _stalePreviews.AddRange(placed.Select(p => p.File));
+                return;
+            }
+            foreach (var (t, file, offset) in placed)
+            {
+                if (!_tracks.Contains(t))
+                {
+                    _stalePreviews.Add(file); // removed meanwhile
+                    continue;
+                }
+                if (t.PreviewFile != null) _stalePreviews.Add(t.PreviewFile);
+                t.PreviewFile = file;
+                t.PreviewOffset = offset;
+            }
+            ReloadPreview();
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            Log.Write("Placing a sound for the preview failed: " + ex);
+            StatusText.Text = "A sound couldn't be prepared for the preview. Exporting may still work.";
+        }
+    }
+
+    /// <summary>Loads the clip again, where it was, with the added sounds' placed copies as extra tracks.</summary>
+    private void ReloadPreview()
+    {
+        if (_player == null || _media == null) return;
+        var sounds = _tracks.Where(t => t.IsSound && t.PreviewFile != null).Select(t => t.PreviewFile!);
+        double position = _timeline.Position;
+        _player.Command("stop"); // the new track setup only fits the reloaded file
+        _player.SetList("audio-files", sounds);
+        ConfigurePreviewAudio();
+        _player.SetProperty("start", position > 0.001 ? Fmt.Num(position, "0.######") : "none");
+        _player.SetProperty("pause", _paused);
+        _eof = false;
+        _player.CommandAsync("loadfile", _media.Path, "replace");
+    }
+
+    /// <summary>Deletes placed sound copies the preview no longer plays (or, at startup, any left over from before).</summary>
+    private void DeleteStalePreviews()
+    {
+        _stalePreviews.RemoveAll(file =>
+        {
+            try { File.Delete(file); return true; }
+            catch (DirectoryNotFoundException) { return true; }
+            catch { return false; } // still open; try again next time
+        });
+    }
+
+    private static void DeletePreviews(TimeSpan olderThan)
+    {
+        try
+        {
+            if (!Directory.Exists(SoundPreviewDir)) return;
+            foreach (var file in Directory.GetFiles(SoundPreviewDir, "*.flac"))
+                if (DateTime.Now - File.GetLastWriteTime(file) > olderThan)
+                    try { File.Delete(file); } catch { }
+        }
+        catch { }
     }
 
     // ------------------------------------------------------------------------------------------
@@ -340,14 +585,16 @@ public partial class EditorView : UserControl
     {
         if (_media == null) return;
         _audioSyncTimer.Stop();
-        _previewAudio?.Configure(_tracks.Count, i => PreviewVolume(_tracks[i]));
+        // The clip's own tracks, then the added sounds that are ready (mpv numbers external tracks after the file's).
+        _previewTracks = [.. _tracks.Where(t => !t.IsSound || t.PreviewFile != null)];
+        _previewAudio?.Configure(_previewTracks.Count, i => PreviewVolume(_previewTracks[i]));
     }
 
     /// <summary>Makes the current volumes stick across mpv rebuilding its filters (it does on every seek).</summary>
     private void SyncPreviewAudio()
     {
         _audioSyncTimer.Stop();
-        if (_media != null) _previewAudio?.Sync(_tracks.Count, i => PreviewVolume(_tracks[i]));
+        if (_media != null) _previewAudio?.Sync(_previewTracks.Count, i => PreviewVolume(_previewTracks[i]));
     }
 
     private double PreviewVolume(AudioTrack t)
@@ -360,7 +607,7 @@ public partial class EditorView : UserControl
     private void ApplyPreviewVolumes()
     {
         if (_previewAudio == null) return;
-        _previewAudio.SetLive(_tracks.Count, i => PreviewVolume(_tracks[i]));
+        _previewAudio.SetLive(_previewTracks.Count, i => PreviewVolume(_previewTracks[i]));
         _audioSyncTimer.Stop();
         _audioSyncTimer.Start();
     }
@@ -461,6 +708,7 @@ public partial class EditorView : UserControl
             {
                 case MpvEventId.FileLoaded:
                     Video.DisableChildWindows();
+                    DeleteStalePreviews();
                     ApplyPreviewVolumes();
                     ApplyLoop();
                     UpdateOsdGeometry();
@@ -914,6 +1162,7 @@ public partial class EditorView : UserControl
         ExportButton.IsEnabled = _media != null && !busy;
         SaveOverButton.IsEnabled = _media != null && !busy;
         MergeCheck.IsEnabled = _tracks.Count > 1;
+        AddSoundButton.IsEnabled = _media != null;
         UpdateSummary();
     }
 
@@ -942,10 +1191,12 @@ public partial class EditorView : UserControl
             if (copy) parts.Add("video copied");
         }
         int audio = c.IsGif ? 0 : _tracks.Count(t => t.Include);
+        int sounds = c.IsGif ? 0 : _tracks.Count(t => t.Include && t.IsSound);
+        string withSounds = sounds switch { 0 => "", 1 => " (1 added sound)", _ => $" ({sounds} added sounds)" };
         if (audio == 0) parts.Add("no audio");
-        else if (audio == 1) parts.Add("1 audio track");
-        else if (MergeCheck.IsChecked == true || c.SingleAudioTrack) parts.Add($"{audio} audio tracks merged into 1");
-        else parts.Add($"{audio} audio tracks");
+        else if (audio == 1) parts.Add("1 audio track" + withSounds);
+        else if (MergeCheck.IsChecked == true || c.SingleAudioTrack) parts.Add($"{audio} audio tracks{withSounds} merged into 1");
+        else parts.Add($"{audio} audio tracks{withSounds}");
         SummaryText.Text = string.Join("  ·  ", parts);
     }
 
@@ -965,7 +1216,11 @@ public partial class EditorView : UserControl
             End = _timeline.Out,
             Crop = _crop.ExportRect(),
             Tracks = _tracks.Where(t => t.Include)
-                .Select(t => new TrackExport(t.Info.Index, t.Info.Codec, t.Info.Channels, t.Info.BitRate, t.Name.Trim(), t.Volume))
+                .Select(t => new TrackExport(t.Info.Index, t.Info.Codec, t.Info.Channels, t.Info.BitRate, t.Name.Trim(), t.Volume)
+                {
+                    SoundPath = t.SoundPath,
+                    Offset = t.Offset,
+                })
                 .ToList(),
             MergeAudio = MergeCheck.IsChecked == true,
             VideoMode = (VideoModeCombo.SelectedItem as Choice)?.Value as string == "copy" ? VideoMode.Copy : VideoMode.Encode,
@@ -1158,4 +1413,24 @@ public partial class EditorView : UserControl
     {
         try { if (File.Exists(path)) File.Delete(path); } catch { }
     }
+
+#if DEBUG
+    internal string DebugState
+    {
+        get
+        {
+            int mpvAudio = 0;
+            if (_player?.GetDouble("track-list/count") is double n)
+                for (int i = 0; i < (int)n; i++)
+                    if (_player.GetString($"track-list/{i}/type") == "audio") mpvAudio++;
+            var tracks = _tracks.Select(t => t.IsSound ? $"{t.Name}@{t.Offset:0.00}{(t.PreviewOffset == t.Offset ? "" : " (not placed)")}" : t.Name);
+            return $"tracks=[{string.Join(", ", tracks)}] previewing={_previewTracks.Count} mpv audio tracks={mpvAudio} " +
+                   $"pos={_timeline.Position:0.00} paused={_paused} summary={SummaryText.Text}";
+        }
+    }
+    internal Task AddSoundForRender(string file, double at) => AddSoundsAsync([file], at);
+    internal void MoveSoundForRender(double to) => _tracks.Last(t => t.IsSound).MoveTo(to);
+    internal void PlayForRender() => TogglePlay();
+    internal void SeekForRender(double t) => Seek(t);
+#endif
 }

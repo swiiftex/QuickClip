@@ -37,6 +37,9 @@ and lets you trim, crop and remix the audio tracks before sharing.
   waveform per track, trims frame-accurately, crops with aspect presets, and exports as a new file or over the
   original. Tracks can be kept separate or merged into one. The preview volume slider is QuickClip's own level in
   the Windows volume mixer.
+- **Add sound** puts a song or sound effect on its own track: click **Add sound** or drop audio files onto the
+  editor (onto the timeline to start them there). Drag a sound's block along its track to move it; it snaps to the
+  clip's start and end, the in and out points and the playhead. Right-click it to start it at the playhead.
 - Opens practically anything FFmpeg reads; exports MP4, MKV, MOV, WebM, GIF, MP3, M4A, WAV, FLAC, Opus.
 - **Right-click → Edit with QuickClip** on video and audio files in Explorer.
 
@@ -126,7 +129,9 @@ Settings live in `%APPDATA%\QuickClip`, thumbnails and the log in `%LOCALAPPDATA
   *Chat* and *Music* capture only their apps, *Mic* the microphone. Every stream is timestamped on the same clock and kept as encoded packets in a RAM ring buffer; saving
   writes the packets from the last keyframe before the start point into an MP4 with named tracks.
 - **Player and preview** use [libmpv](https://mpv.io) embedded in a native child window; the tracks are merged by mpv's
-  `lavfi-complex` and remixed per track by a volume filter that the sliders adjust live.
+  `lavfi-complex` and remixed per track by a volume filter that the sliders adjust live. An added sound is previewed
+  from a temporary FLAC copy already placed on the clip's timeline, loaded as an extra track, so it stays in sync
+  when seeking; the export places it from the original file with the same filters.
 - **Export** builds an FFmpeg command line (`src/QuickClip/Media/Export.cs`).
 
 ## License

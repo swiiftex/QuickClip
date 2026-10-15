@@ -56,12 +56,14 @@ public sealed class MediaFixture : IAsyncLifetime
         Assert.True(code == 0, err);
     }
 
-    /// <summary>Mean level (dB) of one audio stream after a narrow band-pass around <paramref name="hz"/>.</summary>
-    public static async Task<double> BandLevel(string file, int audioOrdinal, int hz, double fromSeconds = 0)
+    /// <summary>Mean level (dB) of one audio stream after a narrow band-pass around <paramref name="hz"/>, from
+    /// <paramref name="fromSeconds"/> for <paramref name="seconds"/> (to the end if 0).</summary>
+    public static async Task<double> BandLevel(string file, int audioOrdinal, int hz, double fromSeconds = 0, double seconds = 0)
     {
         var (code, _, err) = await Proc.RunAsync(Deps.FFmpeg!,
         [
-            "-hide_banner", "-nostdin", "-ss", Fmt.Num(fromSeconds), "-i", file, "-map", $"0:a:{audioOrdinal}",
+            "-hide_banner", "-nostdin", "-ss", Fmt.Num(fromSeconds), .. seconds > 0 ? ["-t", Fmt.Num(seconds)] : Array.Empty<string>(),
+            "-i", file, "-map", $"0:a:{audioOrdinal}",
             "-af", $"bandpass=f={hz}:width_type=h:w=60,volumedetect", "-f", "null", "-",
         ]);
         Assert.True(code == 0, err);

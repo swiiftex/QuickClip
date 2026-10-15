@@ -17,6 +17,7 @@ internal sealed class AppSettings
     public bool MergeAudio { get; set; }
     public bool Loop { get; set; } = true;
     public string? LastFolder { get; set; }
+    public string? SoundFolder { get; set; }                     // where the editor last added a sound from
 
     // Recording (instant replay)
     public bool RecordingEnabled { get; set; } = true;

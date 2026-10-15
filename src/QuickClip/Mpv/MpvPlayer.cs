@@ -92,6 +92,13 @@ internal sealed class MpvPlayer : IDisposable
 
     public bool SetProperty(string name, bool value) => SetProperty(name, value ? "yes" : "no");
 
+    /// <summary>Sets a list option such as audio-files item by item (as one string, "" would be a list of one empty path).</summary>
+    public void SetList(string name, IEnumerable<string> items)
+    {
+        Command("change-list", name, "clr", "");
+        foreach (var item in items) Command("change-list", name, "append", item);
+    }
+
     public double? GetDouble(string name)
     {
         if (_ctx == IntPtr.Zero) return null;

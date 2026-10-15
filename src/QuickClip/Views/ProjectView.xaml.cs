@@ -262,7 +262,7 @@ public partial class ProjectView : UserControl
         _eof = false;
         var slice = _project.Music != null && _music != null ? _timeline.MusicSlice(index, _music.Duration) : null;
         var (lavfi, aid) = Montage.PreviewMix(clip.Info?.Audio.Count ?? 1, slice != null);
-        _player.SetProperty("audio-files", slice is { } s ? Montage.EdlSlice(_project.Music!, s.Start, s.Length) : "");
+        _player.SetList("audio-files", slice is { } s ? [Montage.EdlSlice(_project.Music!, s.Start, s.Length)] : []);
         _player.SetProperty("lavfi-complex", lavfi);
         _player.SetProperty("aid", aid);
         _player.SetProperty("start", offset > 0.01 ? Fmt.Num(offset) : "none");

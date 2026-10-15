@@ -94,6 +94,25 @@ public partial class MainWindow
             await OpenInEditorAsync(editorFile);
             await Task.Delay(3000);
             SaveVisual(Path.Combine(dir, "editor.png"));
+
+            // Add a sound next to the clip, play across it, then move it.
+            if (_editor != null && Directory.GetFiles(Path.GetDirectoryName(editorFile)!, "*.wav").FirstOrDefault() is { } sound)
+            {
+                await _editor.AddSoundForRender(sound, 1.0);
+                await Task.Delay(2500);
+                report.AppendLine($"editor after adding a sound at 1 s: {_editor.DebugState}");
+                SaveVisual(Path.Combine(dir, "editor-sound.png"));
+                _editor.SeekForRender(0.5);
+                await Task.Delay(300);
+                _editor.PlayForRender();
+                await Task.Delay(2000);
+                report.AppendLine($"editor 2 s after playing from 0.5 s: {_editor.DebugState}");
+                _editor.PlayForRender();
+                _editor.MoveSoundForRender(2.5);
+                await Task.Delay(2500);
+                report.AppendLine($"editor after moving the sound to 2.5 s: {_editor.DebugState}");
+                SaveVisual(Path.Combine(dir, "editor-sound-moved.png"));
+            }
             double width = Width;
             Width = MinWidth;
             await Task.Delay(1000);
