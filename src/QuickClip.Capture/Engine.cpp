@@ -691,9 +691,14 @@ namespace qc
     Engine::Engine(const QcConfig& c)
         : shared_(std::make_shared<Shared>(static_cast<int64_t>(c.bufferSeconds) * 1000000)),
           monitor_(c.monitorDevice ? c.monitorDevice : L""),
-          micDevice_(c.micDeviceId ? c.micDeviceId : L""),
-          splitChat_(c.splitChat != 0), splitMusic_(c.splitMusic != 0), micEnabled_(c.micEnabled != 0), audioKbps_(c.audioKbps)
+          splitChat_(c.splitChat != 0), splitMusic_(c.splitMusic != 0), micSeparate_(c.micSeparate != 0), audioKbps_(c.audioKbps)
     {
+        for (int i = 0; i < c.micCount; i++)
+        {
+            const wchar_t* id = c.micDeviceIds ? c.micDeviceIds[i] : nullptr;
+            const wchar_t* title = c.micTitles ? c.micTitles[i] : nullptr;
+            mics_.push_back({ id ? id : L"", title && *title ? Narrow(title) : "Mic " + std::to_string(i + 1) });
+        }
         shared_->fps = std::clamp(c.fps, 10, 240);
         shared_->outWidth = c.outWidth & ~7;
         shared_->outHeight = c.outHeight & ~1;
@@ -726,7 +731,14 @@ namespace qc
         if (addTrack("Desktop") < 0) return false;
         if (splitChat_ && (chatTrack_ = addTrack("Chat")) < 0) return false;
         if (splitMusic_ && (musicTrack_ = addTrack("Music")) < 0) return false;
-        if (micEnabled_ && (micTrack_ = addTrack("Mic")) < 0) return false;
+        // Microphones on one track are mixed together, each keeping its own place on the timeline.
+        std::vector<int> micTracks;
+        for (size_t i = 0; i < mics_.size(); i++)
+        {
+            int track = micSeparate_ ? addTrack(mics_[i].title.c_str()) : i == 0 ? addTrack("Mic") : micTracks[0];
+            if (track < 0) return false;
+            micTracks.push_back(track);
+        }
 
         videoThread_ = std::thread(VideoLoop, shared_, 0);
         WaitForSingleObject(shared_->videoStarted, 15000);
@@ -738,8 +750,9 @@ namespace qc
 
         // Until the app reports its chat and music apps: everything except QuickClip's own previews.
         SetAudioProcesses(GetCurrentProcessId(), {}, {}, {});
-        if (micEnabled_)
-            micSource_ = std::make_unique<AudioSource>(SourceKind::Microphone, 0, micDevice_, *tracks_[micTrack_]->mixer);
+        for (size_t i = 0; i < mics_.size(); i++)
+            micSources_.push_back(std::make_unique<AudioSource>(SourceKind::Microphone, 0, mics_[i].deviceId,
+                *tracks_[static_cast<size_t>(micTracks[i])]->mixer));
         audioThread_ = std::thread([this] { AudioLoop(); });
         watchThread_ = std::thread([this] { WatchLoop(); });
         return true;
@@ -823,7 +836,7 @@ namespace qc
             std::lock_guard guard(sourcesLock_);
             sources_.clear();
         }
-        micSource_.reset();
+        micSources_.clear();
         // A capture call returns with the next frame; with a frozen screen that may take a while.
         for (int i = 0; i < 150 && shared_->runningVideoThreads > 0; i++) Sleep(20);
         if (videoThread_.joinable())

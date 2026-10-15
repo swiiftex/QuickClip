@@ -17,7 +17,9 @@ and lets you trim, crop and remix the audio tracks before sharing.
 - **Separate audio tracks**: *Desktop* (everything else), *Chat* (Discord, TeamSpeak, Mumble, Teams, Zoom, Skype,
   Slack and other voice apps), *Music* (Spotify, TIDAL, Apple Music, Deezer, Amazon Music, YouTube Music, foobar2000
   and other music apps) and *Mic*. Chat and music apps are detected automatically. Only the apps themselves are
-  taken off Desktop: a browser opened from a link in Discord, or a game started from it, stays on Desktop.
+  taken off Desktop: a browser opened from a link in Discord, or a game started from it, stays on Desktop. Several
+  microphones can be recorded at once, mixed onto the one Mic track or each on a track of its own (named after the
+  microphone).
 - **Quality presets** Low → Medium → High → Ultra → Indistinguishable, with **frame rate** (30–240 fps) and
   **output resolution** set independently.
 - **GPU encoding**, newest codec first: AV1 on NVIDIA/AMD/Intel cards that support it, then HEVC, then H.264.

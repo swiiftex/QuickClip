@@ -19,6 +19,8 @@ public partial class SettingsView : UserControl
 
     private readonly DispatcherTimer _restartTimer;
     private IReadOnlyList<MonitorInfo> _monitors = [];
+    private IReadOnlyList<CaptureEngine.AudioDevice> _mics = [];
+    private readonly List<(ComboBox Combo, Button Remove)> _micRows = [];
     private IReadOnlySet<string> _encoders = new HashSet<string>();
     private bool _loading;
     private bool _capturingHotkey;
@@ -166,13 +168,10 @@ public partial class SettingsView : UserControl
             SplitChatCheck.IsChecked = s.SplitChatAudio;
             SplitMusicCheck.IsChecked = s.SplitMusicAudio;
             MicCheck.IsChecked = s.RecordMic;
-            var mics = CaptureEngine.IsAvailable ? await Task.Run(() => { CaptureEngine.Initialize(); return CaptureEngine.EnumMicrophones(); }) : [];
-            string defaultMic = mics.FirstOrDefault(m => m.IsDefault != 0).Name ?? "";
-            var micChoices = new List<Choice> { new(defaultMic.Length > 0 ? $"Windows default ({defaultMic})" : "Windows default", "") };
-            micChoices.AddRange(mics.Select(m => new Choice(m.Name, m.Id)));
-            MicCombo.ItemsSource = micChoices;
-            Select(MicCombo, s.MicDeviceId);
-            MicCombo.IsEnabled = s.RecordMic;
+            _mics = CaptureEngine.IsAvailable ? await Task.Run(() => { CaptureEngine.Initialize(); return CaptureEngine.EnumMicrophones(); }) : [];
+            ShowMics(s.MicDeviceIds.Count > 0 ? s.MicDeviceIds : [""]);
+            MicTracksCombo.ItemsSource = new List<Choice> { new("All on one Mic track", false), new("A track for each microphone", true) };
+            Select(MicTracksCombo, s.SeparateMicTracks);
 
             ShowHotkey();
             StartupCheck.IsChecked = Startup.IsEnabled;
@@ -225,6 +224,13 @@ public partial class SettingsView : UserControl
 #if DEBUG
     internal void SelectAspectForRender(string aspect) => Select(AreaCombo, aspect);
     internal void SetGameWindowForRender(bool on) => GameWindowCheck.IsChecked = on;
+
+    /// <summary>Adds a second microphone row and scrolls to the microphones.</summary>
+    internal void AddMicForRender()
+    {
+        AddMic_Click(AddMicButton, new RoutedEventArgs());
+        MicTracksRow.BringIntoView();
+    }
 #endif
 
     private void RefreshAreas(string value)
@@ -267,6 +273,85 @@ public partial class SettingsView : UserControl
         AreaRow.ToolTip = gameWindow ? "Off while Prefer game window capture is on: a game's window is recorded as it is." : null;
     }
 
+    // ---- microphones ---------------------------------------------------------------------------
+
+    private List<string> SelectedMics => _micRows.Select(r => (r.Combo.SelectedItem as Choice)?.Value as string ?? "").ToList();
+
+    /// <summary>A row per chosen microphone. One that isn't plugged in keeps its place until it's changed or removed.</summary>
+    private void ShowMics(IReadOnlyList<string> ids)
+    {
+        bool was = _loading;
+        _loading = true;
+        MicList.Children.Clear();
+        _micRows.Clear();
+        string defaultMic = _mics.FirstOrDefault(m => m.IsDefault != 0).Name ?? "";
+        foreach (string id in ids)
+        {
+            var choices = new List<Choice> { new(defaultMic.Length > 0 ? $"Windows default ({defaultMic})" : "Windows default", "") };
+            choices.AddRange(_mics.Select(m => new Choice(m.Name, m.Id)));
+            if (!choices.Any(c => Equals(c.Value, id))) choices.Add(new Choice("A microphone that isn't connected", id));
+            var combo = new ComboBox { ItemsSource = choices };
+            Select(combo, id);
+            combo.SelectionChanged += Changed;
+
+            int index = _micRows.Count;
+            var remove = new Button
+            {
+                Content = "Remove", Style = (Style)FindResource("TextButton"), Margin = new Thickness(8, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center, ToolTip = "Stop recording this microphone",
+            };
+            remove.Click += (_, e) =>
+            {
+                var remaining = SelectedMics;
+                remaining.RemoveAt(index);
+                ShowMics(remaining);
+                Changed(remove, e);
+            };
+
+            var row = new Grid { Margin = new Thickness(0, index == 0 ? 0 : 8, 0, 0) };
+            row.ColumnDefinitions.Add(new ColumnDefinition());
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            Grid.SetColumn(remove, 1);
+            row.Children.Add(combo);
+            row.Children.Add(remove);
+            MicList.Children.Add(row);
+            _micRows.Add((combo, remove));
+        }
+        _loading = was;
+        UpdateMicControls();
+    }
+
+    /// <summary>The first connected microphone that isn't chosen yet (the default counts as whichever it is now).</summary>
+    private string? NextMic(IReadOnlyList<string> chosen)
+    {
+        string? defaultId = _mics.FirstOrDefault(m => m.IsDefault != 0).Id;
+        var taken = chosen.Select(id => id == "" ? defaultId : id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return _mics.Select(m => m.Id).FirstOrDefault(id => !taken.Contains(id));
+    }
+
+    private void AddMic_Click(object sender, RoutedEventArgs e)
+    {
+        var ids = SelectedMics;
+        if (NextMic(ids) is not { } next) return;
+        ids.Add(next);
+        ShowMics(ids);
+        Changed(AddMicButton, e);
+    }
+
+    private void UpdateMicControls()
+    {
+        bool on = MicCheck.IsChecked == true, several = _micRows.Count > 1;
+        foreach (var (combo, remove) in _micRows)
+        {
+            combo.IsEnabled = remove.IsEnabled = on;
+            remove.Visibility = several ? Visibility.Visible : Visibility.Collapsed;
+        }
+        AddMicButton.Visibility = NextMic(SelectedMics) != null ? Visibility.Visible : Visibility.Collapsed;
+        AddMicButton.IsEnabled = on;
+        MicTracksRow.Visibility = several ? Visibility.Visible : Visibility.Collapsed;
+        MicTracksCombo.IsEnabled = on;
+    }
+
     private void Changed(object sender, RoutedEventArgs e)
     {
         if (_loading || !IsInitialized) return;
@@ -288,8 +373,9 @@ public partial class SettingsView : UserControl
         s.SplitChatAudio = SplitChatCheck.IsChecked == true;
         s.SplitMusicAudio = SplitMusicCheck.IsChecked == true;
         s.RecordMic = MicCheck.IsChecked == true;
-        s.MicDeviceId = (MicCombo.SelectedItem as Choice)?.Value as string ?? "";
-        MicCombo.IsEnabled = s.RecordMic;
+        s.MicDeviceIds = SelectedMics;
+        s.SeparateMicTracks = MicTracksCombo.SelectedItem is Choice { Value: true };
+        UpdateMicControls();
         s.MinimizeToTray = MinTrayCheck.IsChecked == true;
         s.CloseToTray = CloseTrayCheck.IsChecked == true;
         s.ClipSound = SoundCheck.IsChecked == true;

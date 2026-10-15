@@ -22,8 +22,10 @@ internal static class CaptureEngine
         public int CaptureCursor;
         public int SplitChat;
         public int SplitMusic;
-        public int MicEnabled;
-        public IntPtr MicDeviceId;
+        public int MicCount;
+        public IntPtr MicDeviceIds;
+        public IntPtr MicTitles;
+        public int MicSeparate;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -90,11 +92,21 @@ internal static class CaptureEngine
     /// <param name="aspect">Record only the centered part of the monitor with this shape ("16:9"), or "" for all of it.
     /// The engine works the area out itself, again after a display change.</param>
     /// <param name="outWidth">Size to scale the area to, or 0 for its native size.</param>
+    /// <param name="mics">Microphones to record (see <see cref="Microphones.Plan"/>).</param>
+    /// <param name="separateMics">Each microphone on its own track, named by its title, instead of all on one Mic track.</param>
     public static string? Start(string monitorDevice, string aspect, int fps, int outWidth, int outHeight, string encoder, int videoKbps,
-        int audioKbps, int bufferSeconds, bool cursor, bool splitChat, bool splitMusic, bool mic, string? micDeviceId)
+        int audioKbps, int bufferSeconds, bool cursor, bool splitChat, bool splitMusic, IReadOnlyList<Microphones.Input> mics, bool separateMics)
     {
         var strings = new List<IntPtr>();
         IntPtr Uni(string? s) { var p = s == null ? IntPtr.Zero : Marshal.StringToHGlobalUni(s); strings.Add(p); return p; }
+        IntPtr UniArray(IEnumerable<string> items)
+        {
+            var pointers = items.Select(Uni).ToList();
+            var array = Marshal.AllocHGlobal(IntPtr.Size * Math.Max(1, pointers.Count));
+            strings.Add(array);
+            for (int i = 0; i < pointers.Count; i++) Marshal.WriteIntPtr(array, i * IntPtr.Size, pointers[i]);
+            return array;
+        }
         try
         {
             var config = new Config
@@ -112,8 +124,10 @@ internal static class CaptureEngine
                 CaptureCursor = cursor ? 1 : 0,
                 SplitChat = splitChat ? 1 : 0,
                 SplitMusic = splitMusic ? 1 : 0,
-                MicEnabled = mic ? 1 : 0,
-                MicDeviceId = Uni(micDeviceId),
+                MicCount = mics.Count,
+                MicDeviceIds = UniArray(mics.Select(m => m.DeviceId)),
+                MicTitles = UniArray(mics.Select(m => m.Title)),
+                MicSeparate = separateMics ? 1 : 0,
             };
             strings.Add(config.Encoder);
             var error = new char[1024];

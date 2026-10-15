@@ -26,7 +26,7 @@ public sealed class CaptureEngineTests(MediaFixture media)
         var (w, h) = (area.Width, area.Height);
         string? error = CaptureEngine.Start(monitor.DeviceName, "16:9", 30, 0, 0, encoder.Id,
             RecordingPresets.VideoKbps(RecordingQuality.Low, w, h, 30, encoder.Family), RecordingPresets.AudioKbps,
-            bufferSeconds: 10, cursor: true, splitChat: true, splitMusic: true, mic: true, micDeviceId: null);
+            bufferSeconds: 10, cursor: true, splitChat: true, splitMusic: true, mics: [new("", "Mic")], separateMics: false);
         Assert.Null(error);
         string clip = media.Out("engine-clip.mp4");
         try
@@ -56,6 +56,40 @@ public sealed class CaptureEngineTests(MediaFixture media)
         File.Delete(clip);
     }
 
+    [Theory]
+    [InlineData(true, new[] { "Desktop", "Mic (Yeti)", "Mic (Headset)" })]
+    [InlineData(false, new[] { "Desktop", "Mic" })]
+    public async Task Several_microphones_record_on_their_own_tracks_or_one_shared_track(bool separate, string[] tracks)
+    {
+        if (!CaptureEngine.IsAvailable) return;
+        CaptureEngine.Initialize();
+        var encoder = RecordingPresets.DefaultEncoder(await VideoEncoders.GetAvailableAsync());
+        var monitor = Monitors.List().FirstOrDefault(m => m.IsPrimary);
+        if (encoder == null || monitor == null) return; // no GPU encoder, or no screen (a disconnected remote session)
+
+        // The second microphone isn't there, so its track stays silent the way an unplugged one's does.
+        var area = RecordingPresets.Area(monitor.Width, monitor.Height, "16:9");
+        Assert.Null(CaptureEngine.Start(monitor.DeviceName, "16:9", 30, 0, 0, encoder.Id,
+            RecordingPresets.VideoKbps(RecordingQuality.Low, area.Width, area.Height, 30, encoder.Family), RecordingPresets.AudioKbps,
+            bufferSeconds: 10, cursor: true, splitChat: false, splitMusic: false,
+            mics: [new("", "Mic (Yeti)"), new(@"{0.0.1.00000000}.{not-a-real-microphone}", "Mic (Headset)")], separateMics: separate));
+        string clip = media.Out($"engine-mics-{separate}.mp4");
+        try
+        {
+            await Task.Delay(2500);
+            Assert.Null(await Task.Run(() => CaptureEngine.Save(clip, 1, "Test")));
+        }
+        finally
+        {
+            CaptureEngine.Stop();
+        }
+
+        var info = await MediaInfo.ProbeAsync(clip);
+        Assert.Equal(tracks, info.Audio.Select(a => a.DisplayName));
+        Assert.All(info.Audio, a => Assert.Equal("aac", a.Codec));
+        File.Delete(clip);
+    }
+
     /// <summary>
     /// Above 60 fps the engine records through Windows Graphics Capture: Desktop Duplication tops out around 75 fps of
     /// 120 on some PCs. A tiny window flickering on every screen refresh keeps the picture changing, as a game would.
@@ -73,7 +107,7 @@ public sealed class CaptureEngineTests(MediaFixture media)
         using var flicker = TestWindow.Show(monitor.Left + area.X, monitor.Top + area.Y, 3, 3, Colors.Black, Colors.DimGray, topmost: true);
         string? error = CaptureEngine.Start(monitor.DeviceName, "16:9", 120, 0, 0, encoder.Id,
             RecordingPresets.VideoKbps(RecordingQuality.Low, area.Width, area.Height, 120, encoder.Family), RecordingPresets.AudioKbps,
-            bufferSeconds: 10, cursor: true, splitChat: false, splitMusic: false, mic: false, micDeviceId: null);
+            bufferSeconds: 10, cursor: true, splitChat: false, splitMusic: false, mics: [], separateMics: false);
         Assert.Null(error);
         string clip = media.Out("engine-120.mp4");
         try
@@ -112,7 +146,7 @@ public sealed class CaptureEngineTests(MediaFixture media)
         using var game = TestWindow.Show(monitor.Left + 120, monitor.Top + 120, 320, 240, Colors.Blue, Colors.DarkBlue, topmost: false);
         using var overlay = TestWindow.Show(monitor.Left + 200, monitor.Top + 180, 160, 120, Colors.Red, Colors.Red, topmost: true);
         Assert.Null(CaptureEngine.Start(monitor.DeviceName, "", 30, 0, 0, encoder.Id, 2000, RecordingPresets.AudioKbps,
-            bufferSeconds: 10, cursor: false, splitChat: false, splitMusic: false, mic: false, micDeviceId: null));
+            bufferSeconds: 10, cursor: false, splitChat: false, splitMusic: false, mics: [], separateMics: false));
         string clip = media.Out("engine-window.mp4");
         try
         {
@@ -192,7 +226,7 @@ public sealed class CaptureEngineTests(MediaFixture media)
         var (w, h) = RecordingPresets.OutputSize(area.Width, area.Height, 720);
         Assert.Null(CaptureEngine.Start(monitor.DeviceName, "16:9", 30, w, h, encoder.Id,
             RecordingPresets.VideoKbps(RecordingQuality.Low, w, h, 30, encoder.Family), RecordingPresets.AudioKbps,
-            bufferSeconds: 10, cursor: true, splitChat: false, splitMusic: false, mic: false, micDeviceId: null));
+            bufferSeconds: 10, cursor: true, splitChat: false, splitMusic: false, mics: [], separateMics: false));
         string clip = media.Out("engine-scaled.mp4");
         string? error;
         try
@@ -224,7 +258,7 @@ public sealed class CaptureEngineTests(MediaFixture media)
         var area = RecordingPresets.Area(monitor.Width, monitor.Height, "4:3");
         string? error = CaptureEngine.Start(monitor.DeviceName, "4:3", 30, 0, 0, encoder.Id,
             RecordingPresets.VideoKbps(RecordingQuality.Low, area.Width, area.Height, 30, encoder.Family), RecordingPresets.AudioKbps,
-            bufferSeconds: 10, cursor: true, splitChat: false, splitMusic: false, mic: false, micDeviceId: null);
+            bufferSeconds: 10, cursor: true, splitChat: false, splitMusic: false, mics: [], separateMics: false);
         Assert.Null(error);
         string clip = media.Out("engine-center.mp4");
         try
@@ -307,7 +341,7 @@ public sealed class CaptureEngineTests(MediaFixture media)
         var area = RecordingPresets.Area(monitor.Width, monitor.Height, "16:9");
         Assert.Null(CaptureEngine.Start(monitor.DeviceName, "16:9", 30, 0, 0, encoder.Id,
             RecordingPresets.VideoKbps(RecordingQuality.Low, area.Width, area.Height, 30, encoder.Family), RecordingPresets.AudioKbps,
-            bufferSeconds: 30, cursor: true, splitChat: false, splitMusic: false, mic: false, micDeviceId: null));
+            bufferSeconds: 30, cursor: true, splitChat: false, splitMusic: false, mics: [], separateMics: false));
         string clip = media.Out($"engine-{Guid.NewGuid():N}.mp4");
         string? error;
         try

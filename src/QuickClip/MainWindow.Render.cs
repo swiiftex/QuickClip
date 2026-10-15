@@ -86,6 +86,9 @@ public partial class MainWindow
         await Task.Delay(500);
         SaveVisual(Path.Combine(dir, "settings-game-window.png"));
         _settings.SetGameWindowForRender(false);
+        _settings.AddMicForRender();
+        await Task.Delay(500);
+        SaveVisual(Path.Combine(dir, "settings-mics.png"));
         if (FindChild<ScrollViewer>(Pages.Children.OfType<Views.SettingsView>().First()) is { } scroller)
         {
             scroller.ScrollToEnd();

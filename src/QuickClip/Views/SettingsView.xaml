@@ -178,8 +178,22 @@
                             <ColumnDefinition Width="160" />
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
-                        <CheckBox x:Name="MicCheck" Content="Microphone" VerticalAlignment="Center" Checked="Changed" Unchecked="Changed" />
-                        <ComboBox x:Name="MicCombo" Grid.Column="1" SelectionChanged="Changed" />
+                        <CheckBox x:Name="MicCheck" Content="Microphone" VerticalAlignment="Top" Checked="Changed" Unchecked="Changed" />
+                        <StackPanel Grid.Column="1">
+                            <!-- A row per microphone, filled in by the code -->
+                            <StackPanel x:Name="MicList" />
+                            <Button x:Name="AddMicButton" Style="{StaticResource TextButton}" Content="Add another microphone" HorizontalAlignment="Left"
+                                    Margin="0,8,0,0" Click="AddMic_Click" />
+                        </StackPanel>
+                    </Grid>
+
+                    <Grid x:Name="MicTracksRow" Style="{StaticResource Row}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="160" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Microphone tracks" VerticalAlignment="Center" />
+                        <ComboBox x:Name="MicTracksCombo" Grid.Column="1" SelectionChanged="Changed" />
                     </Grid>
                 </StackPanel>
             </Border>

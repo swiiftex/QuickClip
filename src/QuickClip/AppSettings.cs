@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using QuickClip.Recording;
 
 namespace QuickClip;
@@ -30,7 +31,13 @@ internal sealed class AppSettings
     public bool SplitChatAudio { get; set; } = true;
     public bool SplitMusicAudio { get; set; } = true;
     public bool RecordMic { get; set; } = true;
-    public string MicDeviceId { get; set; } = "";               // empty = Windows default
+    public List<string> MicDeviceIds { get; set; } = [""];      // empty id = Windows default
+    public bool SeparateMicTracks { get; set; }                 // a track per microphone instead of one shared Mic track
+
+    /// <summary>The single microphone of settings from before several could be recorded, moved into <see cref="MicDeviceIds"/>
+    /// when loaded.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? MicDeviceId { get; set; }
     public int HotkeyModifiers { get; set; } = 1;               // MOD_ALT
     public int HotkeyKey { get; set; } = 0x79;                  // F10
     public bool ClipSound { get; set; } = true;
@@ -68,7 +75,7 @@ internal sealed class AppSettings
     {
         try
         {
-            if (File.Exists(FilePath) && JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(FilePath), JsonOptions) is { } loaded)
+            if (File.Exists(FilePath) && Parse(File.ReadAllText(FilePath)) is { } loaded)
             {
                 loaded.LoadedFromFile = true;
                 return loaded;
@@ -81,6 +88,19 @@ internal sealed class AppSettings
         return new AppSettings();
     }
 
+    internal static AppSettings Parse(string json)
+    {
+        var settings = JsonSerializer.Deserialize<AppSettings>(json, JsonOptions) ?? new AppSettings();
+        if (settings.MicDeviceId != null)
+        {
+            settings.MicDeviceIds = [settings.MicDeviceId];
+            settings.MicDeviceId = null;
+        }
+        return settings;
+    }
+
+    internal string ToJson() => JsonSerializer.Serialize(this, JsonOptions);
+
     /// <summary>Debug runs that point QuickClip at test folders must not overwrite the real settings.</summary>
     internal static bool SaveDisabled { get; set; }
 
@@ -91,7 +111,7 @@ internal sealed class AppSettings
         {
             Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
             lock (JsonOptions)
-                File.WriteAllText(FilePath, JsonSerializer.Serialize(this, JsonOptions));
+                File.WriteAllText(FilePath, ToJson());
         }
         catch (Exception ex)
         {
