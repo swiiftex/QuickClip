@@ -106,12 +106,16 @@ internal sealed class Recorder
             bool scaled = w != area.Width || h != area.Height;
             string family = VideoEncoders.Find(encoder)?.Family ?? "h264";
             VideoKbps = RecordingPresets.VideoKbps(s.RecordQuality, w, h, s.RecordFps, family);
-            AudioTracks = RecordingPresets.AudioTrackCount(s);
+            var mics = s.RecordMic ? Microphones.Plan(s.MicDeviceIds, CaptureEngine.EnumMicrophones()) : [];
+            bool separateMics = s.SeparateMicTracks && mics.Count > 1;
+            AudioTracks = 1 + (s.SplitChatAudio ? 1 : 0) + (s.SplitMusicAudio ? 1 : 0) + (separateMics ? mics.Count : Math.Min(mics.Count, 1));
 
             Error = CaptureEngine.Start(monitor.DeviceName, s.RecordAspect, s.RecordFps, scaled ? w : 0, scaled ? h : 0, encoder, VideoKbps,
-                RecordingPresets.AudioKbps, s.BufferSeconds, s.CaptureCursor, s.SplitChatAudio, s.SplitMusicAudio, s.RecordMic,
-                string.IsNullOrEmpty(s.MicDeviceId) ? null : s.MicDeviceId);
+                RecordingPresets.AudioKbps, s.BufferSeconds, s.CaptureCursor, s.SplitChatAudio, s.SplitMusicAudio, mics, separateMics);
             if (Error != null) return;
+            if (mics.Count > 0)
+                Log.Write($"Recording {mics.Count} microphone{(mics.Count == 1 ? "" : "s")}{(separateMics ? " on separate tracks" : "")}: " +
+                          string.Join(", ", mics.Select(m => m.DeviceId == "" ? $"{m.Title} (Windows default)" : m.Title)));
 
             IsRunning = true;
             _summary = $"{h}p{s.RecordFps}{(cropped ? $" {s.RecordAspect}" : "")} · {family.ToUpperInvariant()} · {RecordingPresets.Label(s.RecordQuality)}";

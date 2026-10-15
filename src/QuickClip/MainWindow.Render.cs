@@ -82,6 +82,9 @@ public partial class MainWindow
         _settings!.SelectAspectForRender("16:9");
         await Task.Delay(500);
         SaveVisual(Path.Combine(dir, "settings-16x9.png"));
+        _settings.AddMicForRender();
+        await Task.Delay(500);
+        SaveVisual(Path.Combine(dir, "settings-mics.png"));
         if (FindChild<ScrollViewer>(Pages.Children.OfType<Views.SettingsView>().First()) is { } scroller)
         {
             scroller.ScrollToEnd();

@@ -24,8 +24,10 @@ extern "C"
         int captureCursor;
         int splitChat;                  // separate Chat track
         int splitMusic;                 // separate Music track
-        int micEnabled;
-        const wchar_t* micDeviceId;     // null/empty = default microphone
+        int micCount;                   // microphones to record (0 = none)
+        const wchar_t* const* micDeviceIds; // one per microphone, null/empty for the default microphone
+        const wchar_t* const* micTitles;    // one per microphone, its track's title when each has its own
+        int micSeparate;                // each microphone on its own track instead of all on one Mic track
     };
 
     struct QcStats
@@ -125,11 +127,17 @@ namespace qc
 
         std::shared_ptr<Shared> shared_;
         std::wstring monitor_;
-        std::wstring micDevice_;
-        bool splitChat_, splitMusic_, micEnabled_;
+        bool splitChat_, splitMusic_, micSeparate_;
         int audioKbps_;
 
-        // Audio tracks: Desktop, then Chat, Music and Mic when enabled.
+        struct Mic
+        {
+            std::wstring deviceId;      // empty = the default microphone
+            std::string title;
+        };
+        std::vector<Mic> mics_;
+
+        // Audio tracks are Desktop, then Chat and Music when enabled, then one Mic track or one per microphone.
         struct Track
         {
             std::string title;
@@ -137,7 +145,7 @@ namespace qc
             AudioEncoder encoder;
         };
         std::vector<std::unique_ptr<Track>> tracks_;
-        int chatTrack_ = -1, musicTrack_ = -1, micTrack_ = -1;
+        int chatTrack_ = -1, musicTrack_ = -1;
 
         // App capture streams by what they record. When the apps change, only the streams that differ are
         // stopped or started, so the other tracks keep recording without a gap.
@@ -150,7 +158,7 @@ namespace qc
         };
         std::mutex sourcesLock_;
         std::map<SourceKey, std::unique_ptr<AudioSource>> sources_;
-        std::unique_ptr<AudioSource> micSource_;
+        std::vector<std::unique_ptr<AudioSource>> micSources_;
 
         std::thread videoThread_, audioThread_, watchThread_;
     };
