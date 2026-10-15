@@ -188,7 +188,11 @@
                     <CheckBox x:Name="StartupCheck" Content="Start QuickClip with Windows (in the tray)" Margin="0,10,0,0" Checked="Changed" Unchecked="Changed" />
                     <CheckBox x:Name="MinTrayCheck" Content="Minimizing hides QuickClip to the tray" Margin="0,8,0,0" Checked="Changed" Unchecked="Changed" />
                     <CheckBox x:Name="CloseTrayCheck" Content="Closing the window keeps QuickClip running in the tray" Margin="0,8,0,0" Checked="Changed" Unchecked="Changed" />
-                    <CheckBox x:Name="SoundCheck" Content="Play a sound when a clip is saved" Margin="0,8,0,0" Checked="Changed" Unchecked="Changed" />
+                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                        <CheckBox x:Name="SoundCheck" Content="Play a sound when a clip is saved" VerticalAlignment="Center" Checked="Changed" Unchecked="Changed" />
+                        <Button Style="{StaticResource TextButton}" Content="Play" ToolTip="Hear the sound" Margin="10,0,0,0" VerticalAlignment="Center"
+                                Click="PlayClipSound_Click" />
+                    </StackPanel>
                     <CheckBox x:Name="ShellCheck" Margin="0,8,0,0" Checked="ShellCheck_Changed" Unchecked="ShellCheck_Changed">
                         <TextBlock Text="Add &quot;Edit with QuickClip&quot; to the right-click menu of video and audio files" TextWrapping="Wrap" />
                     </CheckBox>

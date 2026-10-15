@@ -105,7 +105,7 @@ internal sealed class AppHost : IDisposable
 
     private void OnClipSaved(SavedClip clip)
     {
-        if (AppSettings.Current.ClipSound) PlaySound("SystemAsterisk", IntPtr.Zero, SND_ALIAS | SND_ASYNC | SND_NODEFAULT);
+        if (AppSettings.Current.ClipSound) ClipSound.Play();
         string length = RecordingPresets.DurationLabel(clip.Seconds);
         Notify("Clip saved", clip.Folder == "Desktop" ? $"Last {length}" : $"{clip.Folder} · last {length}");
     }
@@ -223,7 +223,6 @@ internal sealed class AppHost : IDisposable
     private const int NIM_ADD = 0, NIM_MODIFY = 1, NIM_DELETE = 2, NIM_SETVERSION = 4;
     private const int NIF_MESSAGE = 0x1, NIF_ICON = 0x2, NIF_TIP = 0x4, NIF_INFO = 0x10, NIF_SHOWTIP = 0x80;
     private const int NIIF_INFO = 0x1, NIIF_NOSOUND = 0x10;
-    private const uint SND_ASYNC = 0x1, SND_NODEFAULT = 0x2, SND_ALIAS = 0x10000;
 
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     private struct NOTIFYICONDATAW
@@ -252,5 +251,4 @@ internal sealed class AppHost : IDisposable
     [DllImport("user32.dll")] private static extern bool UnregisterHotKey(IntPtr hwnd, int id);
     [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr hwnd);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int RegisterWindowMessage(string name);
-    [DllImport("winmm.dll", CharSet = CharSet.Unicode)] private static extern bool PlaySound(string sound, IntPtr module, uint flags);
 }

@@ -379,6 +379,8 @@ public partial class SettingsView : UserControl
         }
     }
 
+    private void PlayClipSound_Click(object sender, RoutedEventArgs e) => ClipSound.Play();
+
     private void ChangeFolder_Click(object sender, RoutedEventArgs e)
     {
         var dlg = new OpenFolderDialog { Title = "Where should clips be saved?", InitialDirectory = AppSettings.Current.ClipsFolder };
