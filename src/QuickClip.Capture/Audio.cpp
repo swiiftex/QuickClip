@@ -187,7 +187,9 @@ namespace qc
         while (WaitForSingleObject(stop_, 0) != WAIT_OBJECT_0)
         {
             HRESULT hr = CaptureOnce();
-            if (FAILED(hr) && hr != lastError)
+            if (FAILED(hr) && hr != lastError && kind_ == SourceKind::Microphone)
+                Log("microphone %s stopped: 0x%08lx", deviceId_.empty() ? "(default)" : Narrow(deviceId_).c_str(), static_cast<unsigned long>(hr));
+            else if (FAILED(hr) && hr != lastError)
                 Log("audio source (kind %d, pid %lu) stopped: 0x%08lx", static_cast<int>(kind_), pid_, static_cast<unsigned long>(hr));
             lastError = hr;
             retryMs = SUCCEEDED(hr) ? 2000 : std::min<DWORD>(retryMs * 2, 30000);
