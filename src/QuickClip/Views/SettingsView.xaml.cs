@@ -160,6 +160,8 @@ public partial class SettingsView : UserControl
             EncoderCombo.ItemsSource = encoders;
             Select(EncoderCombo, s.RecordEncoder);
             CursorCheck.IsChecked = s.CaptureCursor;
+            GameWindowCheck.IsChecked = s.PreferGameWindow;
+            ShowGameWindowState();
 
             SplitChatCheck.IsChecked = s.SplitChatAudio;
             SplitMusicCheck.IsChecked = s.SplitMusicAudio;
@@ -221,6 +223,7 @@ public partial class SettingsView : UserControl
 
 #if DEBUG
     internal void SelectAspectForRender(string aspect) => Select(AreaCombo, aspect);
+    internal void SetGameWindowForRender(bool on) => GameWindowCheck.IsChecked = on;
 #endif
 
     private void RefreshAreas(string value)
@@ -254,6 +257,15 @@ public partial class SettingsView : UserControl
         _loading = was;
     }
 
+    /// <summary>The crop doesn't apply to a game's window: greyed out while recording that is preferred.</summary>
+    private void ShowGameWindowState()
+    {
+        bool gameWindow = GameWindowCheck.IsChecked == true;
+        AreaRow.IsEnabled = !gameWindow;
+        AreaRow.Opacity = gameWindow ? 0.45 : 1;
+        AreaRow.ToolTip = gameWindow ? "Off while Prefer game window capture is on: a game's window is recorded as it is." : null;
+    }
+
     private void Changed(object sender, RoutedEventArgs e)
     {
         if (_loading || !IsInitialized) return;
@@ -270,6 +282,8 @@ public partial class SettingsView : UserControl
         if (ResolutionCombo.SelectedItem is Choice { Value: int res }) s.RecordResolution = res;
         s.RecordEncoder = (EncoderCombo.SelectedItem as Choice)?.Value as string ?? "";
         s.CaptureCursor = CursorCheck.IsChecked == true;
+        s.PreferGameWindow = GameWindowCheck.IsChecked == true;
+        ShowGameWindowState();
         s.SplitChatAudio = SplitChatCheck.IsChecked == true;
         s.SplitMusicAudio = SplitMusicCheck.IsChecked == true;
         s.RecordMic = MicCheck.IsChecked == true;

@@ -92,7 +92,13 @@
                         <ComboBox x:Name="MonitorCombo" Grid.Column="1" SelectionChanged="Changed" />
                     </Grid>
 
-                    <Grid Style="{StaticResource Row}">
+                    <CheckBox x:Name="GameWindowCheck" Margin="160,12,0,0" Checked="Changed" Unchecked="Changed">
+                        <TextBlock Text="Prefer game window capture" />
+                    </CheckBox>
+                    <TextBlock Style="{StaticResource Hint}" Margin="188,2,0,0" TextWrapping="Wrap"
+                               Text="While a game is running, record just its window, even when you tab out: no notifications or overlay windows (Discord, Game Bar, AMD and NVIDIA) on top, and smoother when the game's frame rate is capped. Overlays a game draws into its own picture, like Steam's, stay in it." />
+
+                    <Grid x:Name="AreaRow" Style="{StaticResource Row}">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="160" />
                             <ColumnDefinition Width="*" />

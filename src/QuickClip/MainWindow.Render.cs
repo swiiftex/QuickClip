@@ -82,6 +82,10 @@ public partial class MainWindow
         _settings!.SelectAspectForRender("16:9");
         await Task.Delay(500);
         SaveVisual(Path.Combine(dir, "settings-16x9.png"));
+        _settings.SetGameWindowForRender(true);
+        await Task.Delay(500);
+        SaveVisual(Path.Combine(dir, "settings-game-window.png"));
+        _settings.SetGameWindowForRender(false);
         if (FindChild<ScrollViewer>(Pages.Children.OfType<Views.SettingsView>().First()) is { } scroller)
         {
             scroller.ScrollToEnd();
@@ -102,6 +106,9 @@ public partial class MainWindow
             await Task.Delay(3000);
             SaveVisual(Path.Combine(dir, "editor.png"));
             report.AppendLine($"editor frame rates: {_editor?.FpsChoicesForRender}");
+            _editor?.ExpandOptionsForRender();
+            await Task.Delay(500);
+            SaveVisual(Path.Combine(dir, "editor-options.png"));
 
             // Save over the clip (trimmed), then undo that.
             if (_editor != null && Path.GetFileName(editorFile).StartsWith("undo-test", StringComparison.OrdinalIgnoreCase))

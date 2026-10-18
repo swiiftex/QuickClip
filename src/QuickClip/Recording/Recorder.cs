@@ -21,6 +21,11 @@ internal sealed class Recorder
     private IReadOnlyList<string> _chatApps = [], _musicApps = [];
     private string _summary = "";
     private string? _routingError;
+    private string? _routing;
+    private readonly Dictionary<uint, string> _audioProcesses = [];  // running processes that have had audio
+    private string _family = "h264";
+    private IntPtr _captureWindow;                       // the game window being recorded, or zero for the monitor
+    private (int Width, int Height) _captureWindowSize;
 
     public bool IsRunning { get; private set; }
     public string? Error { get; private set; }
@@ -100,21 +105,29 @@ internal sealed class Recorder
                 return;
             }
 
-            var area = RecordingPresets.Area(monitor.Width, monitor.Height, s.RecordAspect);
-            bool cropped = s.RecordAspect != "" && (area.Width != monitor.Width || area.Height != monitor.Height);
+            // Recording a game's window takes the window as it is: no crop.
+            string aspect = s.PreferGameWindow ? "" : s.RecordAspect;
+            var area = RecordingPresets.Area(monitor.Width, monitor.Height, aspect);
+            bool cropped = aspect != "" && (area.Width != monitor.Width || area.Height != monitor.Height);
             var (w, h) = RecordingPresets.OutputSize(area.Width, area.Height, s.RecordResolution);
             bool scaled = w != area.Width || h != area.Height;
             string family = VideoEncoders.Find(encoder)?.Family ?? "h264";
             VideoKbps = RecordingPresets.VideoKbps(s.RecordQuality, w, h, s.RecordFps, family);
             AudioTracks = RecordingPresets.AudioTrackCount(s);
 
-            Error = CaptureEngine.Start(monitor.DeviceName, s.RecordAspect, s.RecordFps, scaled ? w : 0, scaled ? h : 0, encoder, VideoKbps,
+            Error = CaptureEngine.Start(monitor.DeviceName, aspect, s.RecordFps, scaled ? w : 0, scaled ? h : 0, encoder, VideoKbps,
                 RecordingPresets.AudioKbps, s.BufferSeconds, s.CaptureCursor, s.SplitChatAudio, s.SplitMusicAudio, s.RecordMic,
                 string.IsNullOrEmpty(s.MicDeviceId) ? null : s.MicDeviceId);
             if (Error != null) return;
 
             IsRunning = true;
-            _summary = $"{h}p{s.RecordFps}{(cropped ? $" {s.RecordAspect}" : "")} · {family.ToUpperInvariant()} · {RecordingPresets.Label(s.RecordQuality)}";
+            _family = family;
+            _captureWindow = IntPtr.Zero;
+            _captureWindowSize = default;
+            _routing = null;
+            lock (_audioProcesses) _audioProcesses.Clear();
+            _summary = $"{h}p{s.RecordFps}{(cropped ? $" {aspect}" : "")} · {family.ToUpperInvariant()} · {RecordingPresets.Label(s.RecordQuality)}" +
+                       (s.PreferGameWindow ? " · game window" : "");
             Log.Write($"Recording {monitor.DeviceName}{(cropped ? $" ({area.Width}x{area.Height} at {area.X},{area.Y})" : "")} at {w}x{h}@{s.RecordFps} " +
                       $"with {encoder}, {VideoKbps} kbps, {s.BufferSeconds}s buffer");
             _poll = new Timer(_ => Poll(), null, 0, 2000);
@@ -145,8 +158,11 @@ internal sealed class Recorder
             var music = MusicApps.Find(processes);
             List<uint> chatPids = s.SplitChatAudio ? [.. chat.Select(c => c.Pid)] : [];
             List<uint> musicPids = s.SplitMusicAudio ? [.. music.Select(m => m.Pid)] : [];
-            CaptureEngine.SetAudioProcesses(PlanDesktop(processes, [.. chatPids, .. musicPids]), chatPids, musicPids);
+            var plan = PlanAudio(processes, chatPids, musicPids);
+            CaptureEngine.SetAudioProcesses(plan);
+            LogRouting(processes, plan);
             _games.Poll();
+            if (s.PreferGameWindow) UpdateCaptureWindow(s);
 
             var chatNames = chat.Select(c => c.Name).Distinct().ToList();
             var musicNames = music.Select(m => m.Name).Distinct().ToList();
@@ -162,20 +178,69 @@ internal sealed class Recorder
         }
     }
 
-    private AudioRouting.Desktop PlanDesktop(IReadOnlyList<ProcessScan.Entry> processes, IReadOnlyList<uint> separated)
+    /// <summary>Notes in the log which apps each audio track records, whenever that changes.</summary>
+    private void LogRouting(IReadOnlyList<ProcessScan.Entry> processes, AudioRouting.Plan plan)
     {
+        var names = new Dictionary<uint, string>();
+        foreach (var p in processes) names.TryAdd(p.Pid, Path.GetFileNameWithoutExtension(p.ExeName));
+        string Names(IEnumerable<uint> pids) =>
+            pids.Any() ? string.Join(", ", pids.Select(p => names.GetValueOrDefault(p, $"process {p}")).Distinct()) : "nothing";
+        string desktop = plan.Exclude == 0 ? $"Desktop only {Names(plan.Desktop)}"
+            : $"Desktop everything except {Names([plan.Exclude])}" + (plan.Desktop.Count > 0 ? $" but with {Names(plan.Desktop)}, which it started" : "");
+        string routing = desktop + $"; Chat {Names(plan.Chat)}; Music {Names(plan.Music)}" +
+                         (plan.Missing.Count > 0 ? $"; Desktop can't record {Names(plan.Missing)}, which started the chat or music app" : "");
+        if (routing == _routing) return;
+        _routing = routing;
+        Log.Write("Audio tracks: " + routing);
+    }
+
+    /// <summary>
+    /// "Prefer game window capture": the game in the foreground is recorded by its window, still when you tab out of
+    /// it, until it closes; the monitor otherwise. Only starting or leaving a game switches, so the replay buffer
+    /// isn't cut short by tabbing out.
+    /// </summary>
+    private void UpdateCaptureWindow(AppSettings s)
+    {
+        IntPtr window = _games.GameWindow;
+        if (window == IntPtr.Zero && GameDetector.WindowExists(_captureWindow)) window = _captureWindow;
+        var size = window != IntPtr.Zero ? GameDetector.WindowSize(window) : default;
+        if (window != IntPtr.Zero && (size.Width < 64 || size.Height < 64)) return; // minimized: carry on as it was
+        if (window == _captureWindow && size == _captureWindowSize) return;
+        _captureWindow = window;
+        _captureWindowSize = size;
+        if (window == IntPtr.Zero)
+        {
+            CaptureEngine.SetCaptureWindow(IntPtr.Zero, 0, 0, 0);
+            Log.Write("Recording the monitor again: the game's window closed");
+            return;
+        }
+        var (w, h) = RecordingPresets.OutputSize(size.Width & ~7, size.Height & ~1, s.RecordResolution);
+        int kbps = RecordingPresets.VideoKbps(s.RecordQuality, w, h, s.RecordFps, _family);
+        CaptureEngine.SetCaptureWindow(window, w, h, kbps);
+        Log.Write($"Recording the game window \"{GameDetector.WindowTitle(window, 80)}\" ({size.Width}x{size.Height}) at {w}x{h}, {kbps} kbps");
+    }
+
+    private AudioRouting.Plan PlanAudio(IReadOnlyList<ProcessScan.Entry> processes, List<uint> chat, List<uint> music)
+    {
+        uint self = (uint)Environment.ProcessId;
         try
         {
-            var plan = AudioRouting.Plan(processes, separated, CoreAudio.SessionProcessIds, (uint)Environment.ProcessId);
-            _routingError = null;
-            return plan;
+            lock (_audioProcesses)
+            {
+                // Without chat or music apps, Desktop is simply everything else.
+                if (chat.Count + music.Count > 0) AudioRouting.Remember(_audioProcesses, processes, CoreAudio.SessionProcessIds());
+                else _audioProcesses.Clear();
+                var plan = AudioRouting.Make(processes, chat, music, () => _audioProcesses.Keys.ToHashSet(), ProcessScan.ExePath, self);
+                _routingError = null;
+                return plan;
+            }
         }
         catch (Exception ex)
         {
             // Can't list the apps with audio: leave out just the first separated app, as with only one.
             if (ex.Message != _routingError) Log.Write("Listing the apps with audio failed: " + ex.Message);
             _routingError = ex.Message;
-            return new AudioRouting.Desktop(separated[0], []);
+            return new AudioRouting.Plan(chat.Concat(music).DefaultIfEmpty(self).First(), [], chat, music);
         }
     }
 

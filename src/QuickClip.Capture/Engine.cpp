@@ -247,6 +247,11 @@ namespace qc
         std::atomic<bool> usingDuplication{ true };
         std::atomic<bool> usingFallback{ false };  // Graphics Capture only because Desktop Duplication wasn't available
         std::atomic<bool> rebuildRequested{ false };
+        // A window to record instead of the monitor (a game's): just it, without what's on top of it.
+        std::mutex targetLock;
+        HWND window = nullptr;
+        int windowWidth = 0, windowHeight = 0, windowKbps = 0;
+        std::atomic<bool> windowMode{ false };
         std::atomic<int> testFreezeMs{ 0 };        // tests: make the capture thread hang this long
         std::atomic<int> testFlatBelow{ 0 };       // tests: treat keyframes smaller than this as flat
 
@@ -319,21 +324,24 @@ namespace qc
                     static_cast<unsigned long long>(m.hmonitor), s.fps, s.cursor ? 1 : 0, scaled ? s.outWidth : 0, scaled ? s.outHeight : 0,
                     a.x, a.y, m.width - a.x - a.width, m.height - a.y - a.height);
 
-                // Desktop Duplication is cheapest and keeps a constant frame rate, but can't scale;
-                // Windows Graphics Capture scales on the GPU. Each is the other's fallback.
+                // Desktop Duplication is cheapest and keeps a constant frame rate, but can't scale, and on some PCs it
+                // can't hand frames over much faster than 60 fps (about 75 of 120). Windows Graphics Capture scales on
+                // the GPU and keeps up at 120 fps and more. Each is the other's fallback.
+                bool preferGraphics = scaled || s.fps > 60;
                 std::string first, second;
                 fallback = false;
-                if (!scaled && TryBuild("ddagrab", dda, device, first)) { duplication = true; return true; }
+                if (!preferGraphics && TryBuild("ddagrab", dda, device, first)) { duplication = true; return true; }
                 if (TryBuild("gfxcapture", wgc, device, second))
                 {
                     duplication = false;
-                    fallback = !scaled;
+                    fallback = !preferGraphics;
                     if (fallback) Log("desktop duplication unavailable (%s); using graphics capture for now", first.c_str());
                     return true;
                 }
-                if (scaled && TryBuild("ddagrab", dda, device, first))
+                if (preferGraphics && TryBuild("ddagrab", dda, device, first))
                 {
-                    Log("scaling unavailable (%s); recording at the area's native size", second.c_str());
+                    if (scaled) Log("scaling unavailable (%s); recording at the area's native size", second.c_str());
+                    else Log("graphics capture unavailable (%s); using desktop duplication", second.c_str());
                     duplication = true;
                     return true;
                 }
@@ -341,7 +349,19 @@ namespace qc
                 return false;
             }
 
-            bool OpenEncoder(const Engine::Shared& s, std::string& error)
+            /// Just the window, wherever it is and whatever is in front of it (overlay windows, notifications); if
+            /// its size changes it's scaled to the size it started at, keeping its shape.
+            bool BuildWindow(const Engine::Shared& s, HWND window, int width, int height, AVBufferRef* device, std::string& error)
+            {
+                char wgc[256];
+                snprintf(wgc, sizeof wgc, "hwnd=%llu:max_framerate=%d:capture_cursor=%d:width=%d:height=%d:resize_mode=scale_aspect",
+                    static_cast<unsigned long long>(reinterpret_cast<uintptr_t>(window)), s.fps, s.cursor ? 1 : 0, width, height);
+                fallback = false;
+                duplication = false;
+                return TryBuild("gfxcapture", wgc, device, error);
+            }
+
+            bool OpenEncoder(const Engine::Shared& s, int videoKbps, std::string& error)
             {
                 const AVCodec* codec = avcodec_find_encoder_by_name(s.encoder.c_str());
                 if (!codec) { error = "Encoder " + s.encoder + " is not available"; return false; }
@@ -354,9 +374,9 @@ namespace qc
                 encoder->framerate = AVRational{ s.fps, 1 };
                 encoder->gop_size = s.fps; // a keyframe every second: clips start close to the requested length
                 encoder->max_b_frames = 0;
-                encoder->bit_rate = static_cast<int64_t>(s.videoKbps) * 1000;
-                encoder->rc_max_rate = static_cast<int64_t>(s.videoKbps) * 1500;
-                encoder->rc_buffer_size = s.videoKbps * 2000;
+                encoder->bit_rate = static_cast<int64_t>(videoKbps) * 1000;
+                encoder->rc_max_rate = static_cast<int64_t>(videoKbps) * 1500;
+                encoder->rc_buffer_size = videoKbps * 2000;
                 encoder->color_range = AVCOL_RANGE_MPEG;
                 encoder->colorspace = AVCOL_SPC_BT709;
                 encoder->color_primaries = AVCOL_PRI_BT709;
@@ -417,6 +437,9 @@ namespace qc
             int duplicationBusy = 0;
             AVRational sourceBase{ 1, 1000000 };
             int64_t sourceOffsetUs = INT64_MIN; // maps the capture source's timestamps onto the engine clock
+            // Desktop Duplication falling behind the frame rate is logged with where the time went: waiting for the
+            // next picture, or handing it to the encoder. (Graphics Capture sends frames only when the screen changes.)
+            int64_t paceStartUs = NowUs(), paceWaitUs = 0, paceEncodeUs = 0, paceFrames = 0, paceSkipped = 0;
             auto current = [&] { return !s->stop && s->generation == generation; };
             auto closeCapture = [&] {
                 pipe.Close();
@@ -430,8 +453,30 @@ namespace qc
                     std::string error;
                     MonitorTarget monitor;
                     Area area;
-                    bool ok = FindMonitor(s->monitorDevice, monitor);
-                    if (!ok) error = "The selected monitor wasn't found.";
+                    HWND window;
+                    int windowWidth, windowHeight, kbps;
+                    {
+                        std::lock_guard guard(s->targetLock);
+                        window = s->window;
+                        windowWidth = s->windowWidth;
+                        windowHeight = s->windowHeight;
+                        kbps = window ? s->windowKbps : s->videoKbps;
+                    }
+                    if (window && !IsWindow(window)) window = nullptr, kbps = s->videoKbps; // it closed
+                    bool ok;
+                    if (window)
+                    {
+                        // The graphics card of the monitor the window is on.
+                        MONITORINFOEXW info{};
+                        info.cbSize = sizeof info;
+                        ok = GetMonitorInfoW(MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST), &info) && FindMonitor(info.szDevice, monitor);
+                        if (!ok) error = "The game window's monitor wasn't found.";
+                    }
+                    else
+                    {
+                        ok = FindMonitor(s->monitorDevice, monitor);
+                        if (!ok) error = "The selected monitor wasn't found.";
+                    }
                     if (ok)
                     {
                         area = CenterArea(monitor.width, monitor.height, s->aspectWidth, s->aspectHeight);
@@ -442,7 +487,18 @@ namespace qc
                             error = "Couldn't open the graphics card: " + AvError(ret);
                         }
                     }
-                    ok = ok && pipe.Build(*s, monitor, area, device, error);
+                    if (window && ok && !pipe.BuildWindow(*s, window, windowWidth, windowHeight, device, error))
+                    {
+                        // Record the monitor instead until the window changes.
+                        Log("recording the game window failed (%s); recording the monitor", error.c_str());
+                        {
+                            std::lock_guard guard(s->targetLock);
+                            if (s->window == window) s->window = nullptr;
+                        }
+                        closeCapture();
+                        continue;
+                    }
+                    if (!window) ok = ok && pipe.Build(*s, monitor, area, device, error);
                     // Desktop Duplication is refused while an older capture thread still holds it; that one usually
                     // lets go within moments, so try again briefly before settling for Graphics Capture.
                     if (ok && pipe.fallback && duplicationBusy < 3 && current())
@@ -453,7 +509,7 @@ namespace qc
                         continue;
                     }
                     duplicationBusy = 0;
-                    ok = ok && pipe.OpenEncoder(*s, error);
+                    ok = ok && pipe.OpenEncoder(*s, kbps, error);
                     if (!ok)
                     {
                         closeCapture();
@@ -486,14 +542,18 @@ namespace qc
                     s->height = pipe.encoder->height;
                     s->usingDuplication = pipe.duplication;
                     s->usingFallback = pipe.fallback;
+                    s->windowMode = window != nullptr;
                     lastKeyIndex = -1;
                     if (pipe.fallback) retryDuplicationUs = NowUs() + retryDuplicationWait;
                     else retryDuplicationWait = 5'000'000;
                     s->lastFrameUs = NowUs(); // the watchdog counts from here until the first frame
                     sourceBase = av_buffersink_get_time_base(pipe.sink);
                     sourceOffsetUs = INT64_MIN;
-                    Log("capturing %dx%d at %d,%d of a %dx%d monitor with %s via %s", pipe.encoder->width, pipe.encoder->height,
-                        area.x, area.y, monitor.width, monitor.height, s->encoder.c_str(), pipe.duplication ? "desktop duplication" : "graphics capture");
+                    if (window)
+                        Log("capturing the game window at %dx%d with %s via graphics capture", pipe.encoder->width, pipe.encoder->height, s->encoder.c_str());
+                    else
+                        Log("capturing %dx%d at %d,%d of a %dx%d monitor with %s via %s", pipe.encoder->width, pipe.encoder->height,
+                            area.x, area.y, monitor.width, monitor.height, s->encoder.c_str(), pipe.duplication ? "desktop duplication" : "graphics capture");
                     if (reportStart)
                     {
                         reportStart = false;
@@ -504,7 +564,10 @@ namespace qc
                 // Tests: hang the way a capture call that doesn't return would.
                 if (int freeze = s->testFreezeMs.exchange(0); freeze > 0) Sleep(freeze);
 
+                int64_t waitStartUs = NowUs();
                 int ret = av_buffersink_get_frame(pipe.sink, frame);
+                int64_t gotFrameUs = NowUs();
+                paceWaitUs += gotFrameUs - waitStartUs;
                 if (!current())
                 {
                     av_frame_unref(frame);
@@ -549,6 +612,7 @@ namespace qc
                     continue;
                 }
                 if (lastIndex >= 0 && index > lastIndex + 1 && pipe.duplication) s->dropped += index - lastIndex - 1;
+                if (lastIndex >= 0 && index > lastIndex + 1) paceSkipped += index - lastIndex - 1;
                 lastIndex = index;
                 frame->pts = index;
                 // A keyframe at least once a second by the clock, not only every `fps` frames: when the picture barely
@@ -581,6 +645,16 @@ namespace qc
                     av_packet_unref(packet);
                 }
                 s->lastFrameUs = now;
+                paceEncodeUs += NowUs() - gotFrameUs;
+                if (++paceFrames, NowUs() - paceStartUs >= 30'000'000)
+                {
+                    double seconds = (NowUs() - paceStartUs) / 1e6;
+                    if (pipe.duplication && paceFrames < seconds * s->fps * 0.9)
+                        Log("capture falling behind: %.1f fps of %d (%lld frames skipped); per frame %.2f ms waiting for the picture, %.2f ms encoding",
+                            paceFrames / seconds, s->fps, paceSkipped, paceWaitUs / 1000.0 / paceFrames, paceEncodeUs / 1000.0 / paceFrames);
+                    paceStartUs = NowUs();
+                    paceWaitUs = paceEncodeUs = paceFrames = paceSkipped = 0;
+                }
                 {
                     std::lock_guard guard(s->statsLock);
                     s->frameTimes.push_back(now);
@@ -676,6 +750,20 @@ namespace qc
         shared_->rebuildRequested = true;
     }
 
+    void Engine::SetCaptureWindow(HWND window, int width, int height, int videoKbps)
+    {
+        {
+            std::lock_guard guard(shared_->targetLock);
+            shared_->window = window;
+            // Encoders want an even size; AMD's AV1 encoder pads widths that aren't a multiple of 8.
+            shared_->windowWidth = std::max(16, width & ~7);
+            shared_->windowHeight = std::max(16, height & ~1);
+            shared_->windowKbps = videoKbps > 0 ? videoKbps : shared_->videoKbps;
+        }
+        Log(window ? "recording the game window" : "recording the monitor again");
+        RestartVideo();
+    }
+
     void Engine::TestFreezeVideo(int ms)
     {
         shared_->testFreezeMs = ms;
@@ -715,6 +803,8 @@ namespace qc
             // shouldn't last: starting again moves back to Desktop Duplication once that's free.
             int64_t limit = shared_->usingDuplication ? retryUs
                 : std::max<int64_t>(retryUs, shared_->usingFallback ? 5'000'000 : 15'000'000);
+            // A game window sends nothing while it's minimized; starting again wouldn't change that.
+            if (shared_->windowMode) continue;
             if (shared_->lastFrameUs == 0 || quiet < limit || now - lastRestartUs < limit) continue;
             if (shared_->runningVideoThreads >= 4) continue; // several are stuck already; wait for one to come back
             Log("no picture for %.1f s; starting capture again", quiet / 1e6);
@@ -750,7 +840,7 @@ namespace qc
         if (PerAppCaptureAvailable())
         {
             if (desktopExclude != 0) wanted.insert({ SourceKind::ProcessExclude, desktopExclude, 0 });
-            else for (DWORD pid : desktopInclude) wanted.insert({ SourceKind::ProcessInclude, pid, 0 });
+            for (DWORD pid : desktopInclude) wanted.insert({ SourceKind::ProcessInclude, pid, 0 });
             if (chatTrack_ >= 0) for (DWORD pid : chat) wanted.insert({ SourceKind::ProcessInclude, pid, chatTrack_ });
             if (musicTrack_ >= 0) for (DWORD pid : music) wanted.insert({ SourceKind::ProcessInclude, pid, musicTrack_ });
         }
@@ -768,8 +858,9 @@ namespace qc
                 started++;
             }
         if (stopped > 0 || started > 0)
-            Log("app audio changed: desktop %s, %zu chat and %zu music apps (%zu streams stopped, %zu started)",
-                desktopExclude != 0 ? "is all but one app" : "is recorded app by app", chat.size(), music.size(), stopped, started);
+            Log("app audio changed: desktop %s, %zu chat and %zu music processes (%zu streams stopped, %zu started)",
+                desktopExclude == 0 ? "is recorded app by app" : desktopInclude.empty() ? "is all but one app" : "is all but one app, with apps it started",
+                chat.size(), music.size(), stopped, started);
     }
 
     void Engine::AudioLoop()

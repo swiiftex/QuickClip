@@ -258,96 +258,107 @@
 
                 <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Margin="0,0,-10,0" Padding="0,0,10,0">
                     <StackPanel>
-                        <!-- Crop -->
-                        <StackPanel x:Name="CropSection">
-                            <TextBlock Text="CROP" Style="{StaticResource SectionHeader}" Margin="0,8,0,4" />
-                            <CheckBox x:Name="CropCheck" Content="Crop video" Checked="Crop_Changed" Unchecked="Crop_Changed" ToolTip="Toggle cropping (C)" />
-                            <TextBlock x:Name="CropHint" FontSize="11.5" Foreground="{StaticResource SubtleText}" TextWrapping="Wrap" Margin="0,2,0,0"
-                                       Text="Drag on the video to draw the area to keep. Drag edges or corners to resize, or inside to move." />
-                            <StackPanel x:Name="CropPanel" IsEnabled="False">
-                                <TextBlock Text="Aspect ratio" Style="{StaticResource FieldLabel}" />
-                                <ComboBox x:Name="AspectCombo" SelectionChanged="Aspect_Changed" />
-                                <Grid Margin="0,8,0,0">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="Auto" />
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="Auto" />
-                                        <ColumnDefinition Width="*" />
-                                    </Grid.ColumnDefinitions>
-                                    <Grid.RowDefinitions>
-                                        <RowDefinition Height="Auto" />
-                                        <RowDefinition Height="6" />
-                                        <RowDefinition Height="Auto" />
-                                    </Grid.RowDefinitions>
-                                    <TextBlock Text="W" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="{StaticResource SubtleText}" />
-                                    <TextBox x:Name="CropW" Grid.Column="1" Style="{StaticResource CompactBox}" KeyDown="CropBox_KeyDown" LostKeyboardFocus="CropBox_Commit" />
-                                    <TextBlock Grid.Column="2" Text="H" VerticalAlignment="Center" Margin="10,0,6,0" Foreground="{StaticResource SubtleText}" />
-                                    <TextBox x:Name="CropH" Grid.Column="3" Style="{StaticResource CompactBox}" KeyDown="CropBox_KeyDown" LostKeyboardFocus="CropBox_Commit" />
-                                    <TextBlock Grid.Row="2" Text="X" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="{StaticResource SubtleText}" />
-                                    <TextBox x:Name="CropX" Grid.Row="2" Grid.Column="1" Style="{StaticResource CompactBox}" KeyDown="CropBox_KeyDown" LostKeyboardFocus="CropBox_Commit" />
-                                    <TextBlock Grid.Row="2" Grid.Column="2" Text="Y" VerticalAlignment="Center" Margin="10,0,6,0" Foreground="{StaticResource SubtleText}" />
-                                    <TextBox x:Name="CropY" Grid.Row="2" Grid.Column="3" Style="{StaticResource CompactBox}" KeyDown="CropBox_KeyDown" LostKeyboardFocus="CropBox_Commit" />
-                                </Grid>
-                                <Button Style="{StaticResource TextButton}" Content="Reset crop" Margin="0,8,0,0" HorizontalAlignment="Left" Click="CropReset_Click" />
-                            </StackPanel>
-                        </StackPanel>
+                        <!-- Every option under one heading, closed until wanted: the panel is then just the export -->
+                        <Expander x:Name="OptionsExpander" IsExpanded="False" Margin="0,10,0,0" HorizontalAlignment="Stretch">
+                            <Expander.Header>
+                                <StackPanel>
+                                    <TextBlock Text="Options" FontWeight="SemiBold" FontSize="14" />
+                                    <TextBlock Text="Crop, format, quality, frame rate and audio" FontSize="11.5" Foreground="{StaticResource SubtleText}" />
+                                </StackPanel>
+                            </Expander.Header>
+                            <StackPanel>
+                                <!-- Crop -->
+                                <StackPanel x:Name="CropSection">
+                                    <TextBlock Text="CROP" Style="{StaticResource SectionHeader}" Margin="0,8,0,4" />
+                                    <CheckBox x:Name="CropCheck" Content="Crop video" Checked="Crop_Changed" Unchecked="Crop_Changed" ToolTip="Toggle cropping (C)" />
+                                    <TextBlock x:Name="CropHint" FontSize="11.5" Foreground="{StaticResource SubtleText}" TextWrapping="Wrap" Margin="0,2,0,0"
+                                               Text="Drag on the video to draw the area to keep. Drag edges or corners to resize, or inside to move." />
+                                    <StackPanel x:Name="CropPanel" IsEnabled="False">
+                                        <TextBlock Text="Aspect ratio" Style="{StaticResource FieldLabel}" />
+                                        <ComboBox x:Name="AspectCombo" SelectionChanged="Aspect_Changed" />
+                                        <Grid Margin="0,8,0,0">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <Grid.RowDefinitions>
+                                                <RowDefinition Height="Auto" />
+                                                <RowDefinition Height="6" />
+                                                <RowDefinition Height="Auto" />
+                                            </Grid.RowDefinitions>
+                                            <TextBlock Text="W" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="{StaticResource SubtleText}" />
+                                            <TextBox x:Name="CropW" Grid.Column="1" Style="{StaticResource CompactBox}" KeyDown="CropBox_KeyDown" LostKeyboardFocus="CropBox_Commit" />
+                                            <TextBlock Grid.Column="2" Text="H" VerticalAlignment="Center" Margin="10,0,6,0" Foreground="{StaticResource SubtleText}" />
+                                            <TextBox x:Name="CropH" Grid.Column="3" Style="{StaticResource CompactBox}" KeyDown="CropBox_KeyDown" LostKeyboardFocus="CropBox_Commit" />
+                                            <TextBlock Grid.Row="2" Text="X" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="{StaticResource SubtleText}" />
+                                            <TextBox x:Name="CropX" Grid.Row="2" Grid.Column="1" Style="{StaticResource CompactBox}" KeyDown="CropBox_KeyDown" LostKeyboardFocus="CropBox_Commit" />
+                                            <TextBlock Grid.Row="2" Grid.Column="2" Text="Y" VerticalAlignment="Center" Margin="10,0,6,0" Foreground="{StaticResource SubtleText}" />
+                                            <TextBox x:Name="CropY" Grid.Row="2" Grid.Column="3" Style="{StaticResource CompactBox}" KeyDown="CropBox_KeyDown" LostKeyboardFocus="CropBox_Commit" />
+                                        </Grid>
+                                        <Button Style="{StaticResource TextButton}" Content="Reset crop" Margin="0,8,0,0" HorizontalAlignment="Left" Click="CropReset_Click" />
+                                    </StackPanel>
+                                </StackPanel>
 
-                        <!-- Export -->
-                        <TextBlock Text="EXPORT" Style="{StaticResource SectionHeader}" />
-                        <TextBlock Text="Format" Style="{StaticResource FieldLabel}" Margin="0,0,0,3" />
-                        <ComboBox x:Name="FormatCombo" SelectionChanged="ExportOption_Changed" />
+                                <!-- Export -->
+                                <TextBlock Text="EXPORT" Style="{StaticResource SectionHeader}" />
+                                <TextBlock Text="Format" Style="{StaticResource FieldLabel}" Margin="0,0,0,3" />
+                                <ComboBox x:Name="FormatCombo" SelectionChanged="ExportOption_Changed" />
 
-                        <StackPanel x:Name="VideoOptions">
-                            <TextBlock Text="Video" Style="{StaticResource FieldLabel}" />
-                            <ComboBox x:Name="VideoModeCombo" SelectionChanged="ExportOption_Changed" />
-                            <StackPanel x:Name="EncodeOptions">
-                                <TextBlock Text="Encoder" Style="{StaticResource FieldLabel}" />
-                                <ComboBox x:Name="EncoderCombo" SelectionChanged="ExportOption_Changed" />
+                                <StackPanel x:Name="VideoOptions">
+                                    <TextBlock Text="Video" Style="{StaticResource FieldLabel}" />
+                                    <ComboBox x:Name="VideoModeCombo" SelectionChanged="ExportOption_Changed" />
+                                    <StackPanel x:Name="EncodeOptions">
+                                        <TextBlock Text="Encoder" Style="{StaticResource FieldLabel}" />
+                                        <ComboBox x:Name="EncoderCombo" SelectionChanged="ExportOption_Changed" />
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="8" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel>
+                                                <TextBlock Text="Resolution" Style="{StaticResource FieldLabel}" />
+                                                <ComboBox x:Name="ResolutionCombo" SelectionChanged="ExportOption_Changed" />
+                                            </StackPanel>
+                                            <StackPanel Grid.Column="2">
+                                                <TextBlock Text="Frame rate" Style="{StaticResource FieldLabel}" />
+                                                <ComboBox x:Name="FpsCombo" SelectionChanged="ExportOption_Changed"
+                                                          ToolTip="Smooth 60 fps (for clips over 60 fps, like 120): the frames in between are blended into motion blur rather than dropped, so motion looks smoother." />
+                                            </StackPanel>
+                                        </Grid>
+                                    </StackPanel>
+                                </StackPanel>
+
                                 <Grid>
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*" />
                                         <ColumnDefinition Width="8" />
                                         <ColumnDefinition Width="*" />
                                     </Grid.ColumnDefinitions>
-                                    <StackPanel>
-                                        <TextBlock Text="Resolution" Style="{StaticResource FieldLabel}" />
-                                        <ComboBox x:Name="ResolutionCombo" SelectionChanged="ExportOption_Changed" />
+                                    <StackPanel x:Name="QualityOptions">
+                                        <TextBlock Text="Quality" Style="{StaticResource FieldLabel}" />
+                                        <ComboBox x:Name="QualityCombo" SelectionChanged="ExportOption_Changed" />
                                     </StackPanel>
-                                    <StackPanel Grid.Column="2">
-                                        <TextBlock Text="Frame rate" Style="{StaticResource FieldLabel}" />
-                                        <ComboBox x:Name="FpsCombo" SelectionChanged="ExportOption_Changed"
-                                                  ToolTip="Smooth 60 fps (for clips over 60 fps, like 120): the frames in between are blended into motion blur rather than dropped, so motion looks smoother." />
+                                    <StackPanel x:Name="AudioOptions" Grid.Column="2">
+                                        <TextBlock Text="Audio bitrate" Style="{StaticResource FieldLabel}"
+                                                   ToolTip="Used when audio has to be re-encoded (volume changed, tracks merged or a different format)" />
+                                        <ComboBox x:Name="AudioBitrateCombo" SelectionChanged="ExportOption_Changed" />
                                     </StackPanel>
                                 </Grid>
+                                <CheckBox x:Name="MergeCheck" Margin="0,10,0,0" Checked="Merge_Changed" Unchecked="Merge_Changed"
+                                          ToolTip="Mix every checked track (at its volume) into a single audio track in the exported file.">
+                                    <TextBlock Text="Merge all audio tracks into one" TextWrapping="Wrap" />
+                                </CheckBox>
+                                <DockPanel x:Name="TargetSizePanel" Margin="0,6,0,0" Visibility="Collapsed">
+                                    <TextBlock DockPanel.Dock="Right" Text="MB" VerticalAlignment="Center" Margin="8,0,0,0" Foreground="{StaticResource SubtleText}" />
+                                    <TextBlock DockPanel.Dock="Left" Text="Target size" VerticalAlignment="Center" Margin="0,0,8,0" Foreground="{StaticResource SubtleText}" FontSize="12" />
+                                    <TextBox x:Name="TargetSizeBox" Style="{StaticResource CompactBox}" TextChanged="TargetSize_Changed"
+                                             ToolTip="Aim for this file size, e.g. 10 for Discord's free upload limit" />
+                                </DockPanel>
                             </StackPanel>
-                        </StackPanel>
-
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="8" />
-                                <ColumnDefinition Width="*" />
-                            </Grid.ColumnDefinitions>
-                            <StackPanel x:Name="QualityOptions">
-                                <TextBlock Text="Quality" Style="{StaticResource FieldLabel}" />
-                                <ComboBox x:Name="QualityCombo" SelectionChanged="ExportOption_Changed" />
-                            </StackPanel>
-                            <StackPanel x:Name="AudioOptions" Grid.Column="2">
-                                <TextBlock Text="Audio bitrate" Style="{StaticResource FieldLabel}"
-                                           ToolTip="Used when audio has to be re-encoded (volume changed, tracks merged or a different format)" />
-                                <ComboBox x:Name="AudioBitrateCombo" SelectionChanged="ExportOption_Changed" />
-                            </StackPanel>
-                        </Grid>
-                        <CheckBox x:Name="MergeCheck" Margin="0,10,0,0" Checked="Merge_Changed" Unchecked="Merge_Changed"
-                                  ToolTip="Mix every checked track (at its volume) into a single audio track in the exported file.">
-                            <TextBlock Text="Merge all audio tracks into one" TextWrapping="Wrap" />
-                        </CheckBox>
-                        <DockPanel x:Name="TargetSizePanel" Margin="0,6,0,0" Visibility="Collapsed">
-                            <TextBlock DockPanel.Dock="Right" Text="MB" VerticalAlignment="Center" Margin="8,0,0,0" Foreground="{StaticResource SubtleText}" />
-                            <TextBlock DockPanel.Dock="Left" Text="Target size" VerticalAlignment="Center" Margin="0,0,8,0" Foreground="{StaticResource SubtleText}" FontSize="12" />
-                            <TextBox x:Name="TargetSizeBox" Style="{StaticResource CompactBox}" TextChanged="TargetSize_Changed"
-                                     ToolTip="Aim for this file size, e.g. 10 for Discord's free upload limit" />
-                        </DockPanel>
+                        </Expander>
                     </StackPanel>
                 </ScrollViewer>
             </DockPanel>

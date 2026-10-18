@@ -10,9 +10,14 @@ and lets you trim, crop and remix the audio tracks before sharing.
   Nothing is written to disk until you save a clip.
 - **Any monitor**, including virtual displays (DesktopSplitter, Duet, …), or just its 16:9 (21:9, 16:10, 4:3) center,
   like the middle of an ultrawide. The capture itself crops, so it costs nothing extra.
+- **Prefer game window capture**: while a game is running, QuickClip records just its window (still when you tab
+  out, until it closes), so notifications and overlay windows on top of it (Discord, Game Bar, AMD, NVIDIA) aren't in
+  the clip; the monitor otherwise. Overlays a game draws into its own picture, like Steam's, can't be left out. The
+  crop is off while this is on.
 - **Separate audio tracks**: *Desktop* (everything else), *Chat* (Discord, TeamSpeak, Mumble, Teams, Zoom, Skype,
   Slack and other voice apps), *Music* (Spotify, TIDAL, Apple Music, Deezer, Amazon Music, YouTube Music, foobar2000
-  and other music apps) and *Mic*. Chat and music apps are detected automatically.
+  and other music apps) and *Mic*. Chat and music apps are detected automatically. Only the apps themselves are
+  taken off Desktop: a browser opened from a link in Discord, or a game started from it, stays on Desktop.
 - **Quality presets** Low → Medium → High → Ultra → Indistinguishable, with **frame rate** (30–240 fps) and
   **output resolution** set independently.
 - **GPU encoding**, newest codec first: AV1 on NVIDIA/AMD/Intel cards that support it, then HEVC, then H.264.
@@ -44,7 +49,8 @@ and lets you trim, crop and remix the audio tracks before sharing.
 - **Copy to folder…** copies the ticked clips anywhere.
 - The **editor** previews video with every audio track playing at once, each at its own volume (0–200%), shows a
   waveform per track, trims frame-accurately, crops with aspect presets, and exports as a new file or over the
-  original. Tracks can be kept separate or merged into one (**Merge all audio tracks into one** under Export, which
+  original. Its crop and export settings sit under **Options**, closed until you open it (or press C to crop).
+  Tracks can be kept separate or merged into one (**Merge all audio tracks into one** under Export, which
   asks first, and warns before saving over the original that way). After **Save over original**, **Undo** (Ctrl+Z)
   puts the clip back as it was, from the Recycle Bin, and sends the edited version there instead. The preview volume
   slider is QuickClip's own level in the Windows volume mixer.
@@ -141,11 +147,14 @@ Settings live in `%APPDATA%\QuickClip`, thumbnails and the log in `%LOCALAPPDATA
 
 ## How it works
 
-- **Recording engine** (`src/QuickClip.Capture`, C++): FFmpeg's Desktop Duplication source (or Windows Graphics
-  Capture when scaling) feeds GPU frames straight into the hardware encoder. Audio comes from WASAPI process
+- **Recording engine** (`src/QuickClip.Capture`, C++): FFmpeg's Desktop Duplication source (Windows Graphics
+  Capture above 60 fps, where Desktop Duplication can fall well short of the frame rate, and when scaling) feeds GPU
+  frames straight into the hardware encoder. Audio comes from WASAPI process
   loopback. Windows can leave one process tree out of a capture, so *Desktop* is everything except the chat or music
-  app; with more than one of those running, *Desktop* instead captures every other app that has audio, one by one.
-  *Chat* and *Music* capture only their apps, *Mic* the microphone. Every stream is timestamped on the same clock and kept as encoded packets in a RAM ring buffer; saving
+  app; with more than one of those running, *Desktop* instead captures every other app that has audio, one by one,
+  carrying on while it runs so its next sound starts on time. *Chat* and *Music* capture only their apps' own
+  processes; an app one of them started (part of its process tree) is captured onto *Desktop* instead. *Mic* is the
+  microphone. Every stream is timestamped on the same clock and kept as encoded packets in a RAM ring buffer; saving
   writes the packets from the last keyframe before the start point into an MP4 with named tracks.
 - **Player and preview** use [libmpv](https://mpv.io) embedded in a native child window; the tracks are merged by mpv's
   `lavfi-complex` and remixed per track by a volume filter that the sliders adjust live. An added sound is previewed

@@ -103,14 +103,16 @@ namespace qc
         explicit Engine(const QcConfig& config);
         ~Engine();
         bool Start(std::string& error);
-        /// Desktop records everything but `desktopExclude`'s process tree, or (when that is 0) only the trees of
-        /// `desktopInclude`. Chat and Music record their apps' trees.
+        /// Desktop records everything but `desktopExclude`'s process tree (nothing when that is 0) plus the trees of
+        /// `desktopInclude`. Chat and Music record their processes' trees.
         void SetAudioProcesses(DWORD desktopExclude, const std::vector<DWORD>& desktopInclude,
             const std::vector<DWORD>& chat, const std::vector<DWORD>& music);
         bool Save(const std::wstring& path, int seconds, const std::wstring& title, std::string& error);
         void GetStats(QcStats& stats);
         /// Starts capture again on the next frame (the display changed; the old capture may be stale).
         void RequestRebuild();
+        /// Records `window` (a game's) instead of the monitor, at this size and bitrate; null goes back to the monitor.
+        void SetCaptureWindow(HWND window, int width, int height, int videoKbps);
         /// Tests: makes the capture thread hang for this long, as a stuck capture call would.
         void TestFreezeVideo(int ms);
         /// Tests: counts keyframes smaller than this as a flat picture (0 = the normal limit).

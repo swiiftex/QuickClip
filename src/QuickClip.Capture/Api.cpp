@@ -159,6 +159,13 @@ extern "C"
         if (g_engine) g_engine->RequestRebuild();
     }
 
+    /// Records this window (a game's) instead of the monitor, at this size and bitrate; 0 goes back to the monitor.
+    __declspec(dllexport) void qc_set_capture_window(uint64_t window, int width, int height, int videoKbps)
+    {
+        std::shared_lock guard(g_engineLock);
+        if (g_engine) g_engine->SetCaptureWindow(reinterpret_cast<HWND>(static_cast<uintptr_t>(window)), width, height, videoKbps);
+    }
+
     __declspec(dllexport) void qc_test_freeze_video(int milliseconds)
     {
         std::shared_lock guard(g_engineLock);

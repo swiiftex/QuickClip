@@ -39,10 +39,14 @@ internal sealed class GameDetector
         foreach (var app in ChatApps.Executables.Concat(MusicApps.Executables)) NotGames.Add(app);
     }
 
+    /// <summary>The window of the game in the foreground at the last <see cref="Poll"/>, or zero.</summary>
+    public IntPtr GameWindow { get; private set; }
+
     /// <summary>Called every few seconds: remembers the game in the foreground, if any.</summary>
     public void Poll()
     {
-        var game = DetectForeground();
+        var (game, window) = DetectForeground();
+        GameWindow = game != null ? window : IntPtr.Zero;
         if (game == null) return;
         _lastGame = game;
         _lastGameSeen = DateTime.UtcNow;
@@ -51,27 +55,27 @@ internal sealed class GameDetector
     /// <summary>The game a clip ending now belongs to: the foreground game, or the last one played during the clip.</summary>
     public string? GameForClip(int clipSeconds)
     {
-        var game = DetectForeground();
+        var game = DetectForeground().Name;
         if (game != null) return game;
         return _lastGame != null && DateTime.UtcNow - _lastGameSeen <= TimeSpan.FromSeconds(clipSeconds + 5) ? _lastGame : null;
     }
 
-    private string? DetectForeground()
+    private (string? Name, IntPtr Window) DetectForeground()
     {
         try
         {
             IntPtr hwnd = GetForegroundWindow();
-            if (hwnd == IntPtr.Zero) return null;
+            if (hwnd == IntPtr.Zero) return (null, hwnd);
             GetWindowThreadProcessId(hwnd, out uint pid);
-            if (pid == 0 || pid == Environment.ProcessId) return null;
+            if (pid == 0 || pid == Environment.ProcessId) return (null, hwnd);
             string? path = ProcessScan.ExePath(pid);
-            if (path == null) return null;
-            return Classify(path, IsFullscreen(hwnd), KnownGames(), () => WindowTitle(hwnd));
+            if (path == null) return (null, hwnd);
+            return (Classify(path, IsFullscreen(hwnd), KnownGames(), () => WindowTitle(hwnd)), hwnd);
         }
         catch (Exception ex)
         {
             Log.Write("Game detection failed: " + ex.Message);
-            return null;
+            return (null, IntPtr.Zero);
         }
     }
 
@@ -157,11 +161,29 @@ internal sealed class GameDetector
         return rect.Left <= m.Left && rect.Top <= m.Top && rect.Right >= m.Right && rect.Bottom >= m.Bottom;
     }
 
-    private static string WindowTitle(IntPtr hwnd)
+
+    internal static string WindowTitle(IntPtr hwnd, int max = 256)
     {
-        var buffer = new char[256];
+        var buffer = new char[max];
         int n = GetWindowText(hwnd, buffer, buffer.Length);
         return new string(buffer, 0, Math.Max(0, n));
+    }
+
+    /// <summary>Whether a game's window is still open.</summary>
+    public static bool WindowExists(IntPtr hwnd) => hwnd != IntPtr.Zero && IsWindow(hwnd);
+
+    /// <summary>The size of a window's inside (without its frame) in real pixels, as capture sees it; (0, 0) while minimized.</summary>
+    public static (int Width, int Height) WindowSize(IntPtr hwnd)
+    {
+        IntPtr previous = SetThreadDpiAwarenessContext(new IntPtr(-4)); // per-monitor v2: real pixels whatever this app's DPI mode
+        try
+        {
+            return !IsIconic(hwnd) && GetClientRect(hwnd, out var r) ? (r.Right - r.Left, r.Bottom - r.Top) : (0, 0);
+        }
+        finally
+        {
+            if (previous != IntPtr.Zero) SetThreadDpiAwarenessContext(previous);
+        }
     }
 
     [StructLayout(LayoutKind.Sequential)] private struct RECT { public int Left, Top, Right, Bottom; }
@@ -170,6 +192,10 @@ internal sealed class GameDetector
     [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);
     [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr hwnd, out RECT rect);
+    [DllImport("user32.dll")] private static extern bool GetClientRect(IntPtr hwnd, out RECT rect);
+    [DllImport("user32.dll")] private static extern bool IsWindow(IntPtr hwnd);
+    [DllImport("user32.dll")] private static extern bool IsIconic(IntPtr hwnd);
+    [DllImport("user32.dll")] private static extern IntPtr SetThreadDpiAwarenessContext(IntPtr context);
     [DllImport("user32.dll")] private static extern int GetWindowLong(IntPtr hwnd, int index);
     [DllImport("user32.dll")] private static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint flags);
     [DllImport("user32.dll")] private static extern bool GetMonitorInfo(IntPtr monitor, ref MONITORINFO info);

@@ -1,3 +1,4 @@
+using System.Windows.Media;
 using QuickClip.Media;
 using QuickClip.Recording;
 
@@ -35,7 +36,7 @@ public sealed class CaptureEngineTests(MediaFixture media)
             // Switch Desktop to recording app by app (as with a chat and a music app running) mid-capture.
             uint self = (uint)Environment.ProcessId;
             var explorer = ProcessScan.Snapshot().FirstOrDefault(p => p.ExeName.Equals("explorer.exe", StringComparison.OrdinalIgnoreCase));
-            CaptureEngine.SetAudioProcesses(new AudioRouting.Desktop(0, [self]), [], explorer.Pid != 0 ? [explorer.Pid] : []);
+            CaptureEngine.SetAudioProcesses(new AudioRouting.Plan(0, [self], [], explorer.Pid != 0 ? [explorer.Pid] : []));
             await Task.Delay(2000);
             var stats = CaptureEngine.GetStats();
             Assert.Equal(1, stats.Running);
@@ -53,6 +54,128 @@ public sealed class CaptureEngineTests(MediaFixture media)
         Assert.InRange(info.Duration, 1.9, 3.2); // starts on the keyframe before the 2 s mark
         Assert.Equal(["Desktop", "Chat", "Music", "Mic"], info.Audio.Select(a => a.DisplayName));
         File.Delete(clip);
+    }
+
+    /// <summary>
+    /// Above 60 fps the engine records through Windows Graphics Capture: Desktop Duplication tops out around 75 fps of
+    /// 120 on some PCs. A tiny window flickering on every screen refresh keeps the picture changing, as a game would.
+    /// </summary>
+    [Fact]
+    public async Task Records_120_fps_at_full_speed()
+    {
+        if (!CaptureEngine.IsAvailable) return;
+        CaptureEngine.Initialize();
+        var encoder = RecordingPresets.DefaultEncoder(await VideoEncoders.GetAvailableAsync());
+        var monitor = Monitors.List().FirstOrDefault(m => m.IsPrimary);
+        if (encoder == null || monitor == null) return;
+
+        var area = RecordingPresets.Area(monitor.Width, monitor.Height, "16:9");
+        using var flicker = TestWindow.Show(monitor.Left + area.X, monitor.Top + area.Y, 3, 3, Colors.Black, Colors.DimGray, topmost: true);
+        string? error = CaptureEngine.Start(monitor.DeviceName, "16:9", 120, 0, 0, encoder.Id,
+            RecordingPresets.VideoKbps(RecordingQuality.Low, area.Width, area.Height, 120, encoder.Family), RecordingPresets.AudioKbps,
+            bufferSeconds: 10, cursor: true, splitChat: false, splitMusic: false, mic: false, micDeviceId: null);
+        Assert.Null(error);
+        string clip = media.Out("engine-120.mp4");
+        try
+        {
+            await Task.Delay(5000);
+            Assert.Null(await Task.Run(() => CaptureEngine.Save(clip, 3, "Test")));
+        }
+        finally
+        {
+            CaptureEngine.Stop();
+        }
+
+        var (code, stdout, err) = await Proc.RunAsync(Deps.FFprobe!,
+            ["-v", "error", "-select_streams", "v:0", "-show_entries", "packet=pts_time", "-of", "csv=p=0", clip]);
+        Assert.True(code == 0, err);
+        var pts = stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(l => double.Parse(l.Trim(), System.Globalization.CultureInfo.InvariantCulture)).Order().ToList();
+        double fps = (pts.Count - 1) / (pts[^1] - pts[0]);
+        Assert.True(fps > 110, $"{pts.Count} frames over {pts[^1] - pts[0]:0.00} s is {fps:0.0} fps");
+        File.Delete(clip);
+    }
+
+    /// <summary>
+    /// Recording a game's window records just it: a window on top of it (an overlay) isn't in the picture. Checked by
+    /// colour alone: the "game" is blue, the window over a quarter of it red.
+    /// </summary>
+    [Fact]
+    public async Task A_game_window_is_recorded_without_the_windows_on_top_of_it()
+    {
+        if (!CaptureEngine.IsAvailable) return;
+        CaptureEngine.Initialize();
+        var encoder = RecordingPresets.DefaultEncoder(await VideoEncoders.GetAvailableAsync());
+        var monitor = Monitors.List().FirstOrDefault(m => m.IsPrimary);
+        if (encoder == null || monitor == null) return;
+
+        using var game = TestWindow.Show(monitor.Left + 120, monitor.Top + 120, 320, 240, Colors.Blue, Colors.DarkBlue, topmost: false);
+        using var overlay = TestWindow.Show(monitor.Left + 200, monitor.Top + 180, 160, 120, Colors.Red, Colors.Red, topmost: true);
+        Assert.Null(CaptureEngine.Start(monitor.DeviceName, "", 30, 0, 0, encoder.Id, 2000, RecordingPresets.AudioKbps,
+            bufferSeconds: 10, cursor: false, splitChat: false, splitMusic: false, mic: false, micDeviceId: null));
+        string clip = media.Out("engine-window.mp4");
+        try
+        {
+            CaptureEngine.SetCaptureWindow(game.Handle, 320, 240, 2000);
+            await Task.Delay(3500);
+            Assert.Null(await Task.Run(() => CaptureEngine.Save(clip, 2, "Test")));
+        }
+        finally
+        {
+            CaptureEngine.Stop();
+        }
+
+        var info = await MediaInfo.ProbeAsync(clip);
+        Assert.Equal((320, 240), (info.Video!.Width, info.Video.Height));
+        // Blues carry a lot of U (Cb) and little V (Cr); red carries lots of V. A quarter of red would lift V past 140.
+        var (u, v) = await AverageChroma(clip);
+        Assert.True(u > 170 && v < 135, $"average U {u:0}, V {v:0}");
+        File.Delete(clip);
+    }
+
+    private static async Task<(double U, double V)> AverageChroma(string clip)
+    {
+        var (code, _, err) = await Proc.RunAsync(Deps.FFmpeg!,
+            ["-hide_banner", "-nostdin", "-i", clip, "-vf", "signalstats,metadata=mode=print", "-f", "null", "-"]);
+        Assert.True(code == 0, err);
+        double Average(string key) => System.Text.RegularExpressions.Regex.Matches(err, $@"lavfi\.signalstats\.{key}=([\d.]+)")
+            .Select(m => double.Parse(m.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture)).DefaultIfEmpty(0).Average();
+        return (Average("UAVG"), Average("VAVG"));
+    }
+
+    /// <summary>A borderless window that alternates between two colours on every screen refresh, so it always has new frames.</summary>
+    private sealed class TestWindow : IDisposable
+    {
+        private readonly System.Windows.Threading.Dispatcher _dispatcher;
+
+        private TestWindow(System.Windows.Threading.Dispatcher dispatcher, IntPtr handle) => (_dispatcher, Handle) = (dispatcher, handle);
+
+        public IntPtr Handle { get; }
+
+        public static TestWindow Show(int x, int y, int width, int height, Color a, Color b, bool topmost)
+        {
+            var ready = new TaskCompletionSource<TestWindow>();
+            var thread = new Thread(() =>
+            {
+                var brushes = new[] { new SolidColorBrush(a), new SolidColorBrush(b) };
+                var window = new System.Windows.Window
+                {
+                    WindowStyle = System.Windows.WindowStyle.None, ResizeMode = System.Windows.ResizeMode.NoResize, ShowInTaskbar = false,
+                    Topmost = topmost, ShowActivated = false, WindowStartupLocation = System.Windows.WindowStartupLocation.Manual,
+                    Left = x, Top = y, Width = width, Height = height, Background = brushes[0],
+                };
+                int n = 0;
+                CompositionTarget.Rendering += (_, _) => window.Background = brushes[n++ & 1];
+                window.Show();
+                ready.SetResult(new TestWindow(System.Windows.Threading.Dispatcher.CurrentDispatcher, new System.Windows.Interop.WindowInteropHelper(window).Handle));
+                System.Windows.Threading.Dispatcher.Run();
+            }) { IsBackground = true };
+            thread.SetApartmentState(ApartmentState.STA);
+            thread.Start();
+            return ready.Task.GetAwaiter().GetResult();
+        }
+
+        public void Dispose() => _dispatcher.InvokeShutdown();
     }
 
     [Fact]

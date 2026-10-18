@@ -130,15 +130,19 @@ internal static class CaptureEngine
     /// <summary>Starts screen capture again (the display changed, so the running capture may have gone stale).</summary>
     public static void RestartVideo() => qc_restart_video();
 
+    /// <summary>Records <paramref name="window"/> (a game's) instead of the monitor at this size and bitrate; zero goes back to the monitor.</summary>
+    public static void SetCaptureWindow(IntPtr window, int width, int height, int videoKbps) =>
+        qc_set_capture_window((ulong)window.ToInt64(), width, height, videoKbps);
+
     /// <summary>Tests: makes the capture thread hang, the way a stuck capture call would.</summary>
     internal static void TestFreezeVideo(int milliseconds) => qc_test_freeze_video(milliseconds);
 
     /// <summary>Tests: counts keyframes smaller than this many bytes as a flat (black) picture.</summary>
     internal static void TestFlatBelow(int bytes) => qc_test_flat_below(bytes);
 
-    /// <summary>Which apps each track records; see <see cref="AudioRouting"/> for Desktop.</summary>
-    public static void SetAudioProcesses(AudioRouting.Desktop desktop, IReadOnlyList<uint> chat, IReadOnlyList<uint> music) =>
-        qc_set_audio_processes(desktop.Exclude, [.. desktop.Include], desktop.Include.Count, [.. chat], chat.Count, [.. music], music.Count);
+    /// <summary>Which apps each track records; see <see cref="AudioRouting"/>.</summary>
+    public static void SetAudioProcesses(AudioRouting.Plan plan) =>
+        qc_set_audio_processes(plan.Exclude, [.. plan.Desktop], plan.Desktop.Count, [.. plan.Chat], plan.Chat.Count, [.. plan.Music], plan.Music.Count);
 
     public static string? Save(string path, int seconds, string title)
     {
@@ -159,6 +163,7 @@ internal static class CaptureEngine
     [DllImport(Dll, CharSet = CharSet.Unicode)] private static extern int qc_start(ref Config config, [Out] char[] error, int errorLength);
     [DllImport(Dll)] private static extern void qc_stop();
     [DllImport(Dll)] private static extern void qc_restart_video();
+    [DllImport(Dll)] private static extern void qc_set_capture_window(ulong window, int width, int height, int videoKbps);
     [DllImport(Dll)] private static extern void qc_test_freeze_video(int milliseconds);
     [DllImport(Dll)] private static extern void qc_test_flat_below(int bytes);
     [DllImport(Dll)] private static extern void qc_set_audio_processes(uint desktopExclude, uint[] desktopInclude, int desktopCount,

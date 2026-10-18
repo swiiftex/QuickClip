@@ -971,6 +971,7 @@ public partial class EditorView : UserControl
     {
         _crop.SetEnabled(CropCheck.IsChecked == true);
         CropPanel.IsEnabled = _crop.Enabled;
+        if (_crop.Enabled) OptionsExpander.IsExpanded = true; // turned on with C: show its settings
         UpdateUiState();
     }
 
@@ -1550,6 +1551,7 @@ public partial class EditorView : UserControl
     internal void PlayForRender() => TogglePlay();
     internal void SeekForRender(double t) => Seek(t);
     internal bool CanUndo => _undo != null;
+    internal void ExpandOptionsForRender() => OptionsExpander.IsExpanded = true;
     internal string FpsChoicesForRender => string.Join(", ", FpsCombo.Items.OfType<Choice>().Select(c => c.Label));
     internal string StatusForRender => StatusText.Text;
     internal Task UndoForRender() => UndoAsync();
