@@ -2,7 +2,8 @@ namespace QuickClip.Media;
 
 /// <summary>
 /// A copy of a clip made to be posted anywhere: under 30 MB, at most 60 fps, H.264 (which everything plays) and every
-/// audio track mixed into one. The original is left alone.
+/// audio track mixed into one. A higher frame rate can be blended into motion blur rather than dropped
+/// (<see cref="MotionBlur"/>). The original is left alone.
 /// </summary>
 internal static class ShareCopy
 {
@@ -19,7 +20,8 @@ internal static class ShareCopy
         new[] { "h264_nvenc", "h264_amf", "h264_qsv" }.FirstOrDefault(available.Contains) ?? "libx264";
 
     /// <summary>How to make the copy. A clip that's already small enough H.264 keeps its video and only has its audio mixed.</summary>
-    public static ExportRequest Plan(MediaInfo clip, string output, string encoderId, double limitMB = LimitMB, bool allowCopy = true)
+    public static ExportRequest Plan(MediaInfo clip, string output, string encoderId, double limitMB = LimitMB, bool allowCopy = true,
+        bool motionBlur = true)
     {
         if (clip.Duration <= 0) throw new ExportException("This clip has no length to share.");
         var request = new ExportRequest
@@ -49,6 +51,7 @@ internal static class ShareCopy
             Quality = "size",
             TargetSizeMB = targetMB,
             Fps = v.Fps > MaxFps + 0.01 ? MaxFps : 0,
+            MotionBlur = motionBlur,
             MaxShortSide = ShortSideFor(v.Width, v.Height, fps, videoBps),
         };
     }
@@ -74,14 +77,14 @@ internal static class ShareCopy
     /// Progress is per attempt (the attempt number and 0..1). Returns the copy's size.
     /// </summary>
     public static async Task<long> CreateAsync(MediaInfo clip, string output, string encoderId, IProgress<(int Attempt, double Progress)> progress,
-        CancellationToken ct, double limitMB = LimitMB)
+        CancellationToken ct, double limitMB = LimitMB, bool motionBlur = true)
     {
-        var request = Plan(clip, output, encoderId, limitMB);
+        var request = Plan(clip, output, encoderId, limitMB, motionBlur: motionBlur);
         for (int attempt = 1; ; attempt++)
         {
             int a = attempt;
             Log.Write($"Sharing {clip.Path}: {(request.VideoMode == VideoMode.Copy ? "video copied" : $"{request.TargetSizeMB:0.#} MB, short side {request.MaxShortSide}")}" +
-                      $", fps {request.Fps}, {request.Tracks.Count} audio tracks merged, attempt {attempt}");
+                      $", fps {request.Fps}{(request.MotionBlur && request.Fps > 0 ? " with motion blur" : "")}, {request.Tracks.Count} audio tracks merged, attempt {attempt}");
             await ExportRunner.RunAsync(ExportBuilder.BuildArgs(request), output, request.Duration,
                 new Progress<double>(p => progress.Report((a, p))), ct);
             long size = new FileInfo(output).Length;
@@ -89,7 +92,7 @@ internal static class ShareCopy
             if (attempt == 3) throw new ExportException($"The clip didn't fit in {limitMB:0} MB.");
             // Aim lower by as much as it overshot.
             double target = (request.VideoMode == VideoMode.Copy ? limitMB : request.TargetSizeMB) * (limitMB * 1e6 / size) * 0.95;
-            request = Plan(clip, output, encoderId, target, allowCopy: false);
+            request = Plan(clip, output, encoderId, target, allowCopy: false, motionBlur: motionBlur);
         }
     }
 }

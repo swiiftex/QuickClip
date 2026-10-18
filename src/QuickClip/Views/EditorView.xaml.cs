@@ -62,6 +62,8 @@ public partial class EditorView : UserControl
     private bool _uiReady;
     private bool _refreshingEncoders;
     private bool _closed;
+    /// <summary>The frame rate choice "Smooth 60 fps": 60 fps with the extra frames blended into motion blur.</summary>
+    private const double SmoothFps = -60;
     private (string Clip, DateTime RecycledUtc)? _undo; // the open clip was just saved over; its original is in the Recycle Bin
     private bool _settingMerge;
     private int _timePosQueued;
@@ -361,6 +363,7 @@ public partial class EditorView : UserControl
 
             StartWaveforms();
             RefreshFormatList();
+            RefreshFpsList();
             UpdateUiState();
             Root.Focus();
         }
@@ -1077,9 +1080,7 @@ public partial class EditorView : UserControl
             .Select(r => new Choice(r == 0 ? "Original" : $"{r}p", r)).ToArray();
         Select(ResolutionCombo, _settings.Resolution);
 
-        FpsCombo.ItemsSource = new[] { 0.0, 60, 30, 24, 15 }
-            .Select(f => new Choice(f == 0 ? "Original" : $"{f:0} fps", f)).ToArray();
-        Select(FpsCombo, _settings.Fps);
+        RefreshFpsList();
 
         AudioBitrateCombo.ItemsSource = new[] { 96, 128, 160, 192, 256, 320 }
             .Select(b => new Choice($"{b} kbps", b)).ToArray();
@@ -1104,6 +1105,21 @@ public partial class EditorView : UserControl
         items.AddRange(Containers.Choices.Select(c => new Choice(c.Label, c.Key)));
         FormatCombo.ItemsSource = items;
         Select(FormatCombo, current);
+    }
+
+    /// <summary>
+    /// Frame rates to export at. Clips well over 60 fps (120, 144…) also get "Smooth 60 fps", which blends their extra
+    /// frames into motion blur; a clip at 60 or below has none to blend, so it can't be blurred twice.
+    /// </summary>
+    private void RefreshFpsList()
+    {
+        object current = (FpsCombo.SelectedItem as Choice)?.Value ?? _settings.Fps;
+        var items = new List<Choice> { new("Original", 0.0) };
+        if (_media?.Video is { } v && v.IsBt709 && MotionBlur.Helps(v.Fps, 60))
+            items.Add(new Choice("Smooth 60 fps", SmoothFps));
+        items.AddRange(new[] { 60.0, 30, 24, 15 }.Select(f => new Choice($"{f:0} fps", f)));
+        FpsCombo.ItemsSource = items;
+        Select(FpsCombo, current);
     }
 
     private void RefreshEncoderList()
@@ -1211,6 +1227,7 @@ public partial class EditorView : UserControl
             }
             parts.Add($"{w}×{h}" + (crop != null ? " (cropped)" : ""));
             if (copy) parts.Add("video copied");
+            else if ((FpsCombo.SelectedItem as Choice)?.Value is SmoothFps) parts.Add("smooth 60 fps");
         }
         int audio = c.IsGif ? 0 : _tracks.Count(t => t.Include);
         int sounds = c.IsGif ? 0 : _tracks.Count(t => t.Include && t.IsSound);
@@ -1229,6 +1246,9 @@ public partial class EditorView : UserControl
     private ExportRequest BuildRequest(string outputPath, Container container)
     {
         double.TryParse(TargetSizeBox.Text, NumberStyles.Float, CultureInfo.CurrentCulture, out var mb);
+        // Size and frame rate are re-encode settings (hidden while copying the video, so not applied then either).
+        bool copy = (VideoModeCombo.SelectedItem as Choice)?.Value as string == "copy" && !container.IsGif;
+        double fps = copy ? 0 : (FpsCombo.SelectedItem as Choice)?.Value is double f ? f : 0;
         return new ExportRequest
         {
             Media = _media!,
@@ -1249,8 +1269,9 @@ public partial class EditorView : UserControl
             EncoderId = (EncoderCombo.SelectedItem as Choice)?.Value as string ?? "libx264",
             Quality = (QualityCombo.SelectedItem as Choice)?.Value as string ?? "high",
             TargetSizeMB = mb > 0 ? mb : 25,
-            MaxShortSide = (ResolutionCombo.SelectedItem as Choice)?.Value is int r ? r : 0,
-            Fps = (FpsCombo.SelectedItem as Choice)?.Value is double f ? f : 0,
+            MaxShortSide = !copy && (ResolutionCombo.SelectedItem as Choice)?.Value is int r ? r : 0,
+            Fps = Math.Abs(fps),
+            MotionBlur = fps == SmoothFps,
             AudioBitrateK = (AudioBitrateCombo.SelectedItem as Choice)?.Value is int b ? b : 192,
         };
     }
@@ -1529,6 +1550,7 @@ public partial class EditorView : UserControl
     internal void PlayForRender() => TogglePlay();
     internal void SeekForRender(double t) => Seek(t);
     internal bool CanUndo => _undo != null;
+    internal string FpsChoicesForRender => string.Join(", ", FpsCombo.Items.OfType<Choice>().Select(c => c.Label));
     internal string StatusForRender => StatusText.Text;
     internal Task UndoForRender() => UndoAsync();
     internal Task SaveOverForRender(double newIn)

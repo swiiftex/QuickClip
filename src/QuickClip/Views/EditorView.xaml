@@ -315,7 +315,8 @@
                                     </StackPanel>
                                     <StackPanel Grid.Column="2">
                                         <TextBlock Text="Frame rate" Style="{StaticResource FieldLabel}" />
-                                        <ComboBox x:Name="FpsCombo" SelectionChanged="ExportOption_Changed" />
+                                        <ComboBox x:Name="FpsCombo" SelectionChanged="ExportOption_Changed"
+                                                  ToolTip="Smooth 60 fps (for clips over 60 fps, like 120): the frames in between are blended into motion blur rather than dropped, so motion looks smoother." />
                                     </StackPanel>
                                 </Grid>
                             </StackPanel>

@@ -89,11 +89,19 @@ public partial class MainWindow
             SaveVisual(Path.Combine(dir, "settings-2.png"));
         }
 
+        // What's new after an update from 0.4.2: the real notes of every release since, from GitHub.
+        await ShowWhatsNewAsync(new Updates.AppVersion(0, 4, 2, null));
+        await Task.Delay(800);
+        SaveVisual(Path.Combine(dir, "whats-new.png"));
+        report.AppendLine($"what's new: visible={WhatsNew.Visibility}");
+        WhatsNew.Visibility = Visibility.Collapsed;
+
         if (editorFile != null)
         {
             await OpenInEditorAsync(editorFile);
             await Task.Delay(3000);
             SaveVisual(Path.Combine(dir, "editor.png"));
+            report.AppendLine($"editor frame rates: {_editor?.FpsChoicesForRender}");
 
             // Save over the clip (trimmed), then undo that.
             if (_editor != null && Path.GetFileName(editorFile).StartsWith("undo-test", StringComparison.OrdinalIgnoreCase))

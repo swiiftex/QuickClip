@@ -58,15 +58,8 @@ internal static class Updater
         Changed?.Invoke();
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Get, $"https://api.github.com/repos/{Repository}/releases?per_page=30");
-            request.Headers.Accept.ParseAdd("application/vnd.github+json");
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
-            using var response = await Http.SendAsync(request, cts.Token);
-            if (!response.IsSuccessStatusCode)
-                throw new InvalidOperationException(response.StatusCode == System.Net.HttpStatusCode.NotFound
-                    ? "the release page isn't reachable"
-                    : $"GitHub answered {(int)response.StatusCode}");
-            Available = PickUpdate(await response.Content.ReadAsStringAsync(cts.Token), AppVersion.Current, Channel == Nightly);
+            Available = PickUpdate(await GetReleasesJsonAsync(cts.Token), AppVersion.Current, Channel == Nightly);
             LastError = null;
             Log.Write(Available != null ? $"Update available: {Available.Version}" : "No update available");
         }
@@ -82,6 +75,19 @@ internal static class Updater
             Changed?.Invoke();
         }
         return Available;
+    }
+
+    /// <summary>The repository's latest releases, as GitHub's JSON.</summary>
+    internal static async Task<string> GetReleasesJsonAsync(CancellationToken ct)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"https://api.github.com/repos/{Repository}/releases?per_page=30");
+        request.Headers.Accept.ParseAdd("application/vnd.github+json");
+        using var response = await Http.SendAsync(request, ct);
+        if (!response.IsSuccessStatusCode)
+            throw new InvalidOperationException(response.StatusCode == System.Net.HttpStatusCode.NotFound
+                ? "the release page isn't reachable"
+                : $"GitHub answered {(int)response.StatusCode}");
+        return await response.Content.ReadAsStringAsync(ct);
     }
 
     /// <summary>

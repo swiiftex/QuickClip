@@ -49,6 +49,23 @@ public partial class MainWindow : Window
         {
             UpdateStatus();
             _statusTimer.Start();
+            _ = ShowWhatsNewAfterUpdateAsync();
+        };
+        WhatsNew.Closed += () =>
+        {
+            WhatsNew.Visibility = Visibility.Collapsed;
+            MarkWhatsNewSeen();
+        };
+        // While the release notes are up, keys don't reach the pages underneath; Esc or Enter closes them.
+        PreviewKeyDown += (_, e) =>
+        {
+            if (WhatsNew.Visibility != Visibility.Visible) return;
+            if (e.Key is System.Windows.Input.Key.Escape or System.Windows.Input.Key.Enter)
+            {
+                WhatsNew.Visibility = Visibility.Collapsed;
+                MarkWhatsNewSeen();
+            }
+            e.Handled = true;
         };
         StateChanged += (_, _) =>
         {
@@ -199,6 +216,57 @@ public partial class MainWindow : Window
                 : s.RecordingEnabled ? "Starting…" : "Recording is off — turn on instant replay in Settings";
         }
         SaveClipButton.IsEnabled = recorder.IsRunning;
+    }
+
+    // ---- what's new after an update ----------------------------------------------------------
+
+    private async Task ShowWhatsNewAfterUpdateAsync()
+    {
+        if (AppSettings.SaveDisabled) return; // test and page-render runs
+        var s = AppSettings.Current;
+        var (show, after) = ReleaseNotes.Check(s.SeenVersion, s.LoadedFromFile, AppVersion.Current);
+        if (show) await ShowWhatsNewAsync(after, onlyIfAny: true);
+        else MarkWhatsNewSeen();
+    }
+
+    /// <summary>
+    /// Shows the release notes since <paramref name="after"/> (just this version's if null) over the window.
+    /// <paramref name="onlyIfAny"/>: say nothing if GitHub has none (a build that was never released).
+    /// </summary>
+    public async Task ShowWhatsNewAsync(AppVersion? after, bool onlyIfAny = false)
+    {
+        var current = AppVersion.Current;
+        WhatsNew.ShowLoading(current);
+        if (!onlyIfAny) WhatsNew.Visibility = Visibility.Visible;
+        List<ReleaseNote> notes = [];
+        string? error = null;
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            notes = await ReleaseNotes.FetchAsync(after, current, cts.Token);
+        }
+        catch (Exception ex)
+        {
+            Log.Write("Loading the release notes failed: " + ex.Message);
+            error = ex is OperationCanceledException or System.Net.Http.HttpRequestException ? "couldn't reach GitHub" : ex.Message;
+        }
+        if (onlyIfAny && notes.Count == 0 && error == null)
+        {
+            MarkWhatsNewSeen();
+            return;
+        }
+        WhatsNew.Show(current, after, notes, error);
+        WhatsNew.Visibility = Visibility.Visible;
+    }
+
+    /// <summary>This version's notes have been seen: don't show them at the next start.</summary>
+    private static void MarkWhatsNewSeen()
+    {
+        var s = AppSettings.Current;
+        string version = AppVersion.Current.ToString();
+        if (s.SeenVersion == version) return;
+        s.SeenVersion = version;
+        s.Save();
     }
 
     private void ShowShareStatus()

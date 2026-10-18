@@ -70,6 +70,11 @@ public partial class SettingsView : UserControl
 
     private async void CheckUpdates_Click(object sender, RoutedEventArgs e) => await Updater.CheckAsync();
 
+    private async void ThisVersionNotes_Click(object sender, RoutedEventArgs e)
+    {
+        if (Window.GetWindow(this) is MainWindow window) await window.ShowWhatsNewAsync(after: null);
+    }
+
     private async void Channel_Changed(object sender, SelectionChangedEventArgs e)
     {
         if (_loading || ChannelCombo.SelectedItem is not Choice { Value: string channel } || channel == Updater.Channel) return;
@@ -172,6 +177,7 @@ public partial class SettingsView : UserControl
             MinTrayCheck.IsChecked = s.MinimizeToTray;
             CloseTrayCheck.IsChecked = s.CloseToTray;
             SoundCheck.IsChecked = s.ClipSound;
+            MotionBlurCheck.IsChecked = s.ShareMotionBlur;
             ShellCheck.IsChecked = SafeIsRegistered();
             if (ShellIntegration.IsMenuPackageInstalled())
             {
@@ -272,6 +278,7 @@ public partial class SettingsView : UserControl
         s.MinimizeToTray = MinTrayCheck.IsChecked == true;
         s.CloseToTray = CloseTrayCheck.IsChecked == true;
         s.ClipSound = SoundCheck.IsChecked == true;
+        s.ShareMotionBlur = MotionBlurCheck.IsChecked == true;
         s.Save();
 
         if (sender == StartupCheck)
@@ -281,7 +288,8 @@ public partial class SettingsView : UserControl
         }
 
         UpdateEstimates();
-        bool recordingSetting = sender != StartupCheck && sender != MinTrayCheck && sender != CloseTrayCheck && sender != SoundCheck;
+        bool recordingSetting = sender != StartupCheck && sender != MinTrayCheck && sender != CloseTrayCheck && sender != SoundCheck
+                                && sender != MotionBlurCheck;
         if (recordingSetting)
         {
             _restartTimer.Stop();

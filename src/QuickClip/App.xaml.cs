@@ -48,6 +48,7 @@ public partial class App : Application
         {
             AppSettings.SaveDisabled = true;
             AppSettings.Current.RecordingEnabled = false;
+            _renderOffscreen = true;
         }
 #endif
 
@@ -153,6 +154,8 @@ public partial class App : Application
         ShowMain(file);
     }
 
+    private bool _renderOffscreen;
+
     /// <summary>Shows (or recreates) the window, optionally opening a file in the editor.</summary>
     internal void ShowMain(string? file = null)
     {
@@ -161,6 +164,14 @@ public partial class App : Application
         {
             window = _main = new QuickClip.MainWindow();
             MainWindow = window;
+            if (_renderOffscreen)
+            {
+                // Page renders don't need to be seen: off the screen, without taking focus from whatever's in front.
+                window.ShowActivated = false;
+                window.WindowStartupLocation = WindowStartupLocation.Manual;
+                window.Left = -32000;
+                window.Top = 0;
+            }
             window.Show();
         }
         else

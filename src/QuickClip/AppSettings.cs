@@ -36,6 +36,7 @@ internal sealed class AppSettings
     public int HotkeyModifiers { get; set; } = 1;               // MOD_ALT
     public int HotkeyKey { get; set; } = 0x79;                  // F10
     public bool ClipSound { get; set; } = true;
+    public bool ShareMotionBlur { get; set; } = true;             // sharing a 120 fps clip blends it into 60 fps motion blur
     public string ClipsFolder { get; set; } =
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyVideos), "QuickClip");
 
@@ -44,7 +45,11 @@ internal sealed class AppSettings
     public bool CloseToTray { get; set; } = true;
 
     public bool CheckForUpdates { get; set; } = true;
-    public string? UpdateChannel { get; set; }                   // "stable" or "nightly"; unset = the kind of build this is
+    public string? UpdateChannel { get; set; }
+    public string? SeenVersion { get; set; }                      // the version whose "what's new" was last shown
+
+    /// <summary>Read from an existing settings file (QuickClip has run here before).</summary>
+    [System.Text.Json.Serialization.JsonIgnore] public bool LoadedFromFile { get; private set; }                   // "stable" or "nightly"; unset = the kind of build this is
 
     public string? EncoderCacheKey { get; set; }
     public List<string>? EncoderCache { get; set; }
@@ -64,8 +69,11 @@ internal sealed class AppSettings
     {
         try
         {
-            if (File.Exists(FilePath))
-                return JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(FilePath), JsonOptions) ?? new AppSettings();
+            if (File.Exists(FilePath) && JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(FilePath), JsonOptions) is { } loaded)
+            {
+                loaded.LoadedFromFile = true;
+                return loaded;
+            }
         }
         catch (Exception ex)
         {

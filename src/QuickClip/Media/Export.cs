@@ -27,6 +27,8 @@ internal sealed record ExportRequest
     public int MaxShortSide { get; init; }               // 0 = original
     public double Fps { get; init; }                     // 0 = original
     public int AudioBitrateK { get; init; } = 192;
+    /// <summary>Lowering the frame rate blends the dropped frames into motion blur rather than discarding them.</summary>
+    public bool MotionBlur { get; init; }
 
     public double Duration => End - Start;
 }
@@ -175,10 +177,15 @@ internal static class ExportBuilder
             if (maxShort == 0) maxShort = 480;
             if (fps == 0) fps = 15;
         }
-        if (fps > 0 && (v.Fps <= 0 || fps < v.Fps - 0.01))
+        bool lowerFps = fps > 0 && (v.Fps <= 0 || fps < v.Fps - 0.01);
+        bool blur = lowerFps && r.MotionBlur && !c.IsGif && v.IsBt709 && MotionBlur.Helps(v.Fps, fps);
+        if (lowerFps && !blur)
             chain.Add($"fps={F(fps)}");
         if (maxShort > 0 && Math.Min(w, h) > maxShort)
             chain.Add(w >= h ? $"scale=-2:{maxShort}:flags=lanczos" : $"scale={maxShort}:-2:flags=lanczos");
+        // After scaling: blending in linear light is the costly part, so it works on as few pixels as possible.
+        if (blur)
+            chain.Add(MotionBlur.Filter(v.Fps, fps, fullRange: v.ColorRange == "pc"));
 
         if (c.IsGif)
         {

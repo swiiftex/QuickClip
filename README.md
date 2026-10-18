@@ -32,7 +32,8 @@ and lets you trim, crop and remix the audio tracks before sharing.
   Discord or anywhere with Ctrl+V. A clip that's already small enough H.264 only has its audio mixed; a bigger one is
   compressed to fit, at a smaller size when 30 MB is too little for its resolution. The original stays as it is; the
   copies go in `Videos\QuickClip Shared` and are cleared out after two days. The status bar shows the
-  progress.
+  progress. Clips over 60 fps (like 120 fps recordings) have their extra frames blended into motion blur rather than
+  dropped, so the 60 fps copy looks smoother (**Settings → Sharing**; on by default).
 - **Projects** for montages: tick clips (hover a clip for its checkbox, or Ctrl+click), then **Add to project**, or
   drag clips onto a project in the list (or onto its **+** to start a new one); a clip's right-click menu has
   **Add to project** and **Copy to folder…** too, for it or for every ticked clip. A
@@ -50,6 +51,11 @@ and lets you trim, crop and remix the audio tracks before sharing.
 - **Add sound** puts a song or sound effect on its own track: click **Add sound** or drop audio files onto the
   editor (onto the timeline to start them there). Drag a sound's block along its track to move it; it snaps to the
   clip's start and end, the in and out points and the playhead. Right-click it to start it at the playhead.
+- **Smooth 60 fps** (the editor's frame rate choice for clips of about 90 fps and up) exports at 60 fps with the
+  frames in between blended into motion blur, mixed in linear light like a camera shutter open for the whole frame.
+  It's only offered above 60 fps, so a clip can't be blurred twice.
+- **What's new**: after an update, QuickClip shows the release notes of every version since the one you had, the
+  next time its window opens (never over a game); **Settings → Updates → What's new** shows them again.
 - Opens practically anything FFmpeg reads; exports MP4, MKV, MOV, WebM, GIF, MP3, M4A, WAV, FLAC, Opus.
 - **Right-click → Edit with QuickClip** on video and audio files in Explorer.
 

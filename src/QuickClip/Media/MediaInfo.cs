@@ -11,6 +11,13 @@ internal sealed class VideoStreamInfo
     public int Width { get; init; }
     public int Height { get; init; }
     public double Fps { get; init; }
+    /// <summary>ffprobe's color tags ("bt709", "tv"), or null when the file doesn't say.</summary>
+    public string? ColorSpace { get; init; }
+    public string? ColorTransfer { get; init; }
+    public string? ColorRange { get; init; }
+
+    /// <summary>Ordinary (BT.709, or untagged as most SDR video is) rather than HDR or old SD colors.</summary>
+    public bool IsBt709 => (ColorSpace is null or "bt709" or "unknown") && (ColorTransfer is null or "bt709" or "unknown");
 }
 
 public sealed class AudioStreamInfo
@@ -114,6 +121,9 @@ internal sealed class MediaInfo
                         Width = w,
                         Height = h,
                         Fps = fps,
+                        ColorSpace = Str(s, "color_space"),
+                        ColorTransfer = Str(s, "color_transfer"),
+                        ColorRange = Str(s, "color_range"),
                     };
                 }
                 else if (type == "audio")
