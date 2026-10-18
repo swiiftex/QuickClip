@@ -163,6 +163,37 @@ public sealed class ExportTests(MediaFixture media)
         Assert.All(outInfo.Audio, a => Assert.Equal("opus", a.Codec));
     }
 
+    /// <summary>A recording laid out like QuickClip's: Desktop, Chat, Music and Mic tracks, named in the MP4 handler.</summary>
+    private async Task<string> RecorderLikeClip()
+    {
+        string path = media.Out("recorder-like.mp4");
+        if (File.Exists(path)) return path;
+        await MediaFixture.Run(
+        [
+            "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=60",
+            "-f", "lavfi", "-i", "sine=frequency=300:sample_rate=48000", "-f", "lavfi", "-i", "sine=frequency=700:sample_rate=48000",
+            "-f", "lavfi", "-i", "sine=frequency=1100:sample_rate=48000", "-f", "lavfi", "-i", "sine=frequency=1500:sample_rate=48000",
+            "-t", "5", "-map", "0:v", "-map", "1:a", "-map", "2:a", "-map", "3:a", "-map", "4:a",
+            "-c:v", "libx264", "-preset", "ultrafast", "-g", "60", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "160k", "-ac", "2",
+            "-metadata:s:a:0", "handler_name=Desktop", "-metadata:s:a:1", "handler_name=Chat",
+            "-metadata:s:a:2", "handler_name=Music", "-metadata:s:a:3", "handler_name=Mic", path,
+        ]);
+        return path;
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Trimming_a_recording_keeps_all_four_named_tracks(bool copyVideo)
+    {
+        var (_, outInfo) = await Export($"trimmed-{copyVideo}.mp4", Containers.Mp4, s => s.Audio.Select(a => Track(a, 1)).ToList(),
+            r => r with { VideoMode = copyVideo ? VideoMode.Copy : VideoMode.Encode }, start: 1, end: 3, source: await RecorderLikeClip());
+
+        Assert.Equal(["Desktop", "Chat", "Music", "Mic"], outInfo.Audio.Select(a => a.DisplayName));
+        Assert.All(outInfo.Audio, a => Assert.Equal(2, a.Channels));
+        Assert.InRange(outInfo.Duration, 1.9, 3.1);
+    }
+
     public static TheoryData<string> Encoders => [.. VideoEncoders.All.Where(e => e.Export).Select(e => e.Id)];
 
     /// <summary>Runs every encoder this machine supports (GPU ones only if the hardware is present).</summary>

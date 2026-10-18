@@ -95,6 +95,23 @@ public partial class MainWindow
             await Task.Delay(3000);
             SaveVisual(Path.Combine(dir, "editor.png"));
 
+            // Save over the clip (trimmed), then undo that.
+            if (_editor != null && Path.GetFileName(editorFile).StartsWith("undo-test", StringComparison.OrdinalIgnoreCase))
+            {
+                double before = (await Media.MediaInfo.ProbeAsync(editorFile)).Duration;
+                await _editor.SaveOverForRender(2);
+                await Task.Delay(1500);
+                var edited = await Media.MediaInfo.ProbeAsync(editorFile);
+                report.AppendLine($"undo: {before:0.00}s before, {edited.Duration:0.00}s after saving over; can undo={_editor.CanUndo}; status={_editor.StatusForRender}");
+                SaveVisual(Path.Combine(dir, "editor-saved-over.png"));
+                await _editor.UndoForRender();
+                await Task.Delay(1500);
+                var restored = await Media.MediaInfo.ProbeAsync(editorFile);
+                report.AppendLine($"undo: {restored.Duration:0.00}s after undo; can undo={_editor.CanUndo}; status={_editor.StatusForRender}; " +
+                                  $"leftovers=[{string.Join(", ", Directory.GetFiles(Path.GetDirectoryName(editorFile)!).Select(Path.GetFileName))}]");
+                SaveVisual(Path.Combine(dir, "editor-undone.png"));
+            }
+
             // Add a sound next to the clip, play across it, then move it.
             if (_editor != null && Directory.GetFiles(Path.GetDirectoryName(editorFile)!, "*.wav").FirstOrDefault() is { } sound)
             {

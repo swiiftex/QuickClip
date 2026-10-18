@@ -14,7 +14,7 @@ internal sealed class AppSettings
     public int Resolution { get; set; }
     public double Fps { get; set; }
     public int AudioBitrate { get; set; } = 192;
-    public bool MergeAudio { get; set; }
+    public bool MergeAudio { get; set; }                         // no longer remembered: the editor always starts unmerged
     public bool Loop { get; set; } = true;
     public string? LastFolder { get; set; }
     public string? SoundFolder { get; set; }                     // where the editor last added a sound from
@@ -44,6 +44,7 @@ internal sealed class AppSettings
     public bool CloseToTray { get; set; } = true;
 
     public bool CheckForUpdates { get; set; } = true;
+    public string? UpdateChannel { get; set; }                   // "stable" or "nightly"; unset = the kind of build this is
 
     public string? EncoderCacheKey { get; set; }
     public List<string>? EncoderCache { get; set; }

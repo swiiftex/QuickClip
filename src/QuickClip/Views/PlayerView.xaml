@@ -20,6 +20,13 @@
             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,10,0">
                 <Button x:Name="PreviousButton" Style="{StaticResource IconButton}" Content="&#xE76B;" Click="Previous_Click" ToolTip="Previous clip (Page Up)" />
                 <Button x:Name="NextButton" Style="{StaticResource IconButton}" Content="&#xE76C;" Click="Next_Click" ToolTip="Next clip (Page Down)" Margin="0,0,12,0" />
+                <Button Style="{StaticResource TextButton}" Click="Share_Click"
+                        ToolTip="Make a copy under 30 MB (at most 60 fps, all audio mixed into one track) and copy it to the clipboard to paste anywhere (S)">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE72D;" VerticalAlignment="Center" Margin="0,0,7,0" />
+                        <TextBlock Text="Share" />
+                    </StackPanel>
+                </Button>
                 <Button Style="{StaticResource TextButton}" Click="Edit_Click" ToolTip="Trim, crop and export this clip (E)">
                     <StackPanel Orientation="Horizontal">
                         <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE70F;" VerticalAlignment="Center" Margin="0,0,7,0" />

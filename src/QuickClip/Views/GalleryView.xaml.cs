@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
+using System.Windows.Media;
 using System.Windows.Threading;
 using Microsoft.Win32;
 using QuickClip.Gallery;
@@ -28,6 +29,9 @@ public partial class GalleryView : UserControl
     private readonly DispatcherTimer _agoTimer;
     private readonly DispatcherTimer _statusTimer;
     private readonly HashSet<string> _selected = new(StringComparer.OrdinalIgnoreCase);
+    private Point? _dragStart;      // where a press on a clip began, until it becomes a drag or a click
+    private ClipItem? _dragItem;
+    private bool _dragged;          // the press turned into a drag, so releasing it isn't a click
     private List<ClipItem> _clips = [];
     private List<ProjectSummary> _projects = [];
     private string _folder = ClipLibrary.AllClips;
@@ -260,7 +264,8 @@ public partial class GalleryView : UserControl
 
     private void Card_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
     {
-        if (ItemOf(sender) is not { } item) return;
+        _dragStart = null;
+        if (_dragged || ItemOf(sender) is not { } item) return;
         // While clips are being picked, a click picks; Ctrl+click always does.
         if (HasSelection || Keyboard.Modifiers.HasFlag(ModifierKeys.Control)) item.IsSelected = !item.IsSelected;
         else Play(item);
@@ -275,6 +280,120 @@ public partial class GalleryView : UserControl
     }
 
     private void PlayClip_Click(object sender, RoutedEventArgs e) => Play(ItemOf(sender));
+
+    private void ShareClip_Click(object sender, RoutedEventArgs e)
+    {
+        if (ItemOf(sender) is { } item) _ = ClipSharing.ShareAsync(item.Path);
+    }
+
+    /// <summary>What a clip's menu or a drag acts on: every selected clip if this one is selected, else just it.</summary>
+    private List<string> ClipsFor(ClipItem item) => item.IsSelected ? SelectedPaths() : [item.Path];
+
+    private void ClipMenu_Opened(object sender, RoutedEventArgs e)
+    {
+        if (sender is not ContextMenu menu || menu.DataContext is not ClipItem item) return;
+        int count = ClipsFor(item).Count;
+        string clips = count == 1 ? "" : $" {count} selected clips";
+        foreach (var entry in menu.Items.OfType<MenuItem>())
+        {
+            if (entry.Tag as string == "copy") entry.Header = count == 1 ? "Copy to folder…" : $"Copy{clips} to folder…";
+            if (entry.Tag as string != "projects") continue;
+            entry.Header = count == 1 ? "Add to project" : $"Add{clips} to project";
+            entry.Items.Clear();
+            foreach (var project in _projects)
+            {
+                // A TextBlock header: an underscore in a name isn't an access key.
+                var add = new MenuItem { Header = new TextBlock { Text = $"{project.Name}  ({project.ClipCount})" } };
+                add.Click += async (_, _) => await AddClipsToAsync(ClipsFor(item), project.Folder, open: false);
+                entry.Items.Add(add);
+            }
+            if (_projects.Count > 0) entry.Items.Add(new Separator());
+            var create = new MenuItem { Header = "New project…" };
+            create.Click += async (_, _) =>
+            {
+                var paths = ClipsFor(item);
+                if (CreateProject() is { } folder) await AddClipsToAsync(paths, folder, open: true);
+            };
+            entry.Items.Add(create);
+        }
+    }
+
+    private async void CopyClipsToFolder_Click(object sender, RoutedEventArgs e)
+    {
+        if (ItemOf(sender) is { } item) await CopyClipsAsync(ClipsFor(item));
+    }
+
+    // ---- dragging clips onto projects ----------------------------------------------------------
+
+    private void Card_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        _dragStart = e.GetPosition(this);
+        _dragItem = ItemOf(sender);
+        _dragged = false;
+    }
+
+    private void Card_MouseMove(object sender, MouseEventArgs e)
+    {
+        if (_dragStart is not { } start || _dragItem is not { } item || e.LeftButton != MouseButtonState.Pressed) return;
+        var at = e.GetPosition(this);
+        if (Math.Abs(at.X - start.X) < SystemParameters.MinimumHorizontalDragDistance &&
+            Math.Abs(at.Y - start.Y) < SystemParameters.MinimumVerticalDragDistance) return;
+        _dragStart = null;
+        _dragged = true;
+        // As files, so they can be dropped on a project here or in Explorer, Discord and so on.
+        var paths = ClipsFor(item);
+        DragDrop.DoDragDrop((DependencyObject)sender, new DataObject(DataFormats.FileDrop, paths.ToArray()), DragDropEffects.Copy);
+    }
+
+    /// <summary>The video files being dragged, or none if it isn't video files.</summary>
+    private static List<string> DraggedClips(DragEventArgs e) =>
+        e.Data.GetData(DataFormats.FileDrop) is string[] files
+            ? files.Where(f => File.Exists(f) && ShellIntegration.Extensions.Contains(Path.GetExtension(f).ToLowerInvariant())).ToList()
+            : [];
+
+    private static readonly Brush DropHighlight = Freeze(new SolidColorBrush(Color.FromArgb(0x40, 0x60, 0xCD, 0xFF)));
+
+    private void Project_DragOver(object sender, DragEventArgs e)
+    {
+        bool ok = DraggedClips(e).Count > 0;
+        e.Effects = ok ? DragDropEffects.Copy : DragDropEffects.None;
+        if (ok && sender is Panel row) row.Background = DropHighlight;
+        e.Handled = true;
+    }
+
+    private void Project_DragLeave(object sender, DragEventArgs e)
+    {
+        if (sender is Panel row) row.Background = Brushes.Transparent;
+    }
+
+    private void Project_Drop(object sender, DragEventArgs e)
+    {
+        Project_DragLeave(sender, e);
+        var paths = DraggedClips(e);
+        if (paths.Count == 0 || ProjectOf(sender) is not { } project) return;
+        e.Handled = true;
+        // After the drop finishes: the drag holds the mouse until this handler returns.
+        Dispatcher.BeginInvoke(async () => await AddClipsToAsync(paths, project.Folder, open: false));
+    }
+
+    private void NewProject_DragOver(object sender, DragEventArgs e)
+    {
+        e.Effects = DraggedClips(e).Count > 0 ? DragDropEffects.Copy : DragDropEffects.None;
+        e.Handled = true;
+    }
+
+    private void NewProject_Drop(object sender, DragEventArgs e)
+    {
+        var paths = DraggedClips(e);
+        if (paths.Count == 0) return;
+        e.Handled = true;
+        Dispatcher.BeginInvoke(async () =>
+        {
+            if (CreateProject() is { } folder) await AddClipsToAsync(paths, folder, open: true);
+        });
+    }
+
+    private static T Freeze<T>(T f) where T : Freezable { f.Freeze(); return f; }
 
     private void OpenClip_Click(object sender, RoutedEventArgs e)
     {
@@ -387,16 +506,17 @@ public partial class GalleryView : UserControl
         menu.IsOpen = true;
     }
 
-    private async Task AddSelectionToAsync(string folder, bool open)
+    private Task AddSelectionToAsync(string folder, bool open) => AddClipsToAsync(SelectedPaths(), folder, open);
+
+    private async Task AddClipsToAsync(List<string> paths, string folder, bool open)
     {
-        var paths = SelectedPaths();
         if (paths.Count == 0) return;
         try
         {
             var project = ProjectLibrary.Load(folder);
             int added = await WithProgressAsync($"Adding to {project.Name}", paths.Count,
                 progress => ProjectLibrary.AddClipsAsync(project, paths, progress));
-            ClearSelection();
+            if (paths.Any(_selected.Contains)) ClearSelection();
             ShowStatus(added == paths.Count
                 ? $"Added {added} clip{(added == 1 ? "" : "s")} to {project.Name}."
                 : $"Added {added} clip{(added == 1 ? "" : "s")} to {project.Name}; {paths.Count - added} {(paths.Count - added == 1 ? "was" : "were")} already in it.");
@@ -411,9 +531,10 @@ public partial class GalleryView : UserControl
         }
     }
 
-    private async void CopyToFolder_Click(object sender, RoutedEventArgs e)
+    private async void CopyToFolder_Click(object sender, RoutedEventArgs e) => await CopyClipsAsync(SelectedPaths());
+
+    private async Task CopyClipsAsync(List<string> paths)
     {
-        var paths = SelectedPaths();
         if (paths.Count == 0) return;
         var dialog = new OpenFolderDialog { Title = $"Copy {paths.Count} clip{(paths.Count == 1 ? "" : "s")} to" };
         if (dialog.ShowDialog(Window.GetWindow(this)) != true) return;
@@ -424,7 +545,7 @@ public partial class GalleryView : UserControl
                 await ProjectLibrary.CopyToFolderAsync(paths, dialog.FolderName, progress);
                 return paths.Count;
             });
-            ClearSelection();
+            if (paths.Any(_selected.Contains)) ClearSelection();
             ShowStatus($"Copied {paths.Count} clip{(paths.Count == 1 ? "" : "s")} to {dialog.FolderName}.");
         }
         catch (Exception ex)
@@ -437,6 +558,7 @@ public partial class GalleryView : UserControl
     /// <summary>Shows "Copying… 2 of 5" in the selection bar (its buttons disabled) while <paramref name="work"/> runs.</summary>
     private async Task<T> WithProgressAsync<T>(string what, int count, Func<IProgress<int>, Task<T>> work)
     {
+        SelectionBar.Visibility = Visibility.Visible; // also for a single clip from its menu or a drag
         SelectionActions.IsEnabled = false;
         SelectionText.Text = $"{what}…";
         try

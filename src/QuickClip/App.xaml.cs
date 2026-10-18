@@ -205,6 +205,7 @@ public partial class App : Application
         await Recorder.Instance.StopAsync();
         Host?.Dispose();
         AppSettings.Current.Save();
+        ShellClipboard.KeepAfterExit();
         Log.Flush();
         beforeExit?.Invoke();
         Shutdown(0);

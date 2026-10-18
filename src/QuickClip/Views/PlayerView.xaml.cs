@@ -308,6 +308,11 @@ public partial class PlayerView : UserControl
 
     private void Next_Click(object sender, RoutedEventArgs e) => Step(1);
 
+    private void Share_Click(object sender, RoutedEventArgs e)
+    {
+        if (Current is { } clip) _ = ClipSharing.ShareAsync(clip.Path);
+    }
+
     private void Edit_Click(object sender, RoutedEventArgs e)
     {
         if (Current is { } clip) EditRequested?.Invoke(clip.Path);
@@ -415,6 +420,7 @@ public partial class PlayerView : UserControl
             case Key.PageUp: Step(-1); break;
             case Key.PageDown: Step(1); break;
             case Key.E: Edit_Click(this, e); break;
+            case Key.S: Share_Click(this, e); break;
             case Key.Delete: Delete_Click(this, e); break;
             default: handled = false; break;
         }

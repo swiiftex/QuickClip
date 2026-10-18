@@ -19,6 +19,23 @@ internal static class Updater
 
     private static readonly HttpClient Http = CreateClient();
 
+    public const string Stable = "stable", Nightly = "nightly";
+
+    /// <summary>
+    /// Which releases this copy updates to: stable (the tested releases) or nightly (development builds as they're
+    /// made, published as GitHub prereleases). A nightly build stays on nightly unless switched.
+    /// </summary>
+    public static string Channel
+    {
+        get => AppSettings.Current.UpdateChannel is Stable or Nightly ? AppSettings.Current.UpdateChannel
+            : AppVersion.Current.IsPrerelease ? Nightly : Stable;
+        set
+        {
+            AppSettings.Current.UpdateChannel = value;
+            AppSettings.Current.Save();
+        }
+    }
+
     public static ReleaseInfo? Available { get; private set; }
     public static string? LastError { get; private set; }
     public static DateTime? LastChecked { get; private set; }
@@ -49,7 +66,7 @@ internal static class Updater
                 throw new InvalidOperationException(response.StatusCode == System.Net.HttpStatusCode.NotFound
                     ? "the release page isn't reachable"
                     : $"GitHub answered {(int)response.StatusCode}");
-            Available = PickUpdate(await response.Content.ReadAsStringAsync(cts.Token), AppVersion.Current);
+            Available = PickUpdate(await response.Content.ReadAsStringAsync(cts.Token), AppVersion.Current, Channel == Nightly);
             LastError = null;
             Log.Write(Available != null ? $"Update available: {Available.Version}" : "No update available");
         }
@@ -68,10 +85,11 @@ internal static class Updater
     }
 
     /// <summary>
-    /// The newest published release above <paramref name="current"/>, from the GitHub releases JSON.
-    /// Prereleases are only offered to people already running one.
+    /// The newest published release above <paramref name="current"/>, from the GitHub releases JSON. Prereleases
+    /// (nightly builds) only on the nightly channel; a nightly build switched to stable waits for the next stable
+    /// release that's newer than it.
     /// </summary>
-    internal static ReleaseInfo? PickUpdate(string json, AppVersion current)
+    internal static ReleaseInfo? PickUpdate(string json, AppVersion current, bool nightly)
     {
         using var doc = JsonDocument.Parse(json);
         ReleaseInfo? best = null;
@@ -81,7 +99,7 @@ internal static class Updater
             string tag = release.GetProperty("tag_name").GetString() ?? "";
             if (!AppVersion.TryParse(tag, out var version)) continue;
             bool prerelease = version.IsPrerelease || (release.TryGetProperty("prerelease", out var pre) && pre.GetBoolean());
-            if (prerelease && !current.IsPrerelease) continue;
+            if (prerelease && !nightly) continue;
             if (!(version > current) || (best != null && !(version > best.Version))) continue;
 
             ReleaseAsset? setup = null, portable = null;

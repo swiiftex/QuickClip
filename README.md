@@ -26,8 +26,16 @@ and lets you trim, crop and remix the audio tracks before sharing.
 - QuickClip opens on the **gallery**: *All clips* first, then a folder per game, with thumbnails, lengths and how long
   ago each clip was made.
 - Click a clip to watch it in the **player**, with every audio track playing, full screen, the previous or next clip
-  of the folder, and buttons to edit, show or delete it.
-- **Projects** for montages: tick clips (hover a clip for its checkbox, or Ctrl+click), then **Add to project**. A
+  of the folder, and buttons to share, edit, show or delete it.
+- **Share** (the share button on a clip, its right-click menu, or **S** in the player) makes a copy that's under 30 MB,
+  at most 60 fps and H.264 with every audio track mixed into one, then copies it to the clipboard: paste it into
+  Discord or anywhere with Ctrl+V. A clip that's already small enough H.264 only has its audio mixed; a bigger one is
+  compressed to fit, at a smaller size when 30 MB is too little for its resolution. The original stays as it is; the
+  copies go in `Videos\QuickClip Shared` and are cleared out after two days. The status bar shows the
+  progress.
+- **Projects** for montages: tick clips (hover a clip for its checkbox, or Ctrl+click), then **Add to project**, or
+  drag clips onto a project in the list (or onto its **+** to start a new one); a clip's right-click menu has
+  **Add to project** and **Copy to folder…** too, for it or for every ticked clip. A
   project is a folder in `Projects` inside the clips folder. Its clips play one after another in the preview,
   drag them to change the order, and add a song to play under them. **Export to editor** joins everything into one
   video (the music on its own track, faded out at the end) and opens it in the editor to set the volumes and export.
@@ -35,8 +43,10 @@ and lets you trim, crop and remix the audio tracks before sharing.
 - **Copy to folder…** copies the ticked clips anywhere.
 - The **editor** previews video with every audio track playing at once, each at its own volume (0–200%), shows a
   waveform per track, trims frame-accurately, crops with aspect presets, and exports as a new file or over the
-  original. Tracks can be kept separate or merged into one. The preview volume slider is QuickClip's own level in
-  the Windows volume mixer.
+  original. Tracks can be kept separate or merged into one (**Merge all audio tracks into one** under Export, which
+  asks first, and warns before saving over the original that way). After **Save over original**, **Undo** (Ctrl+Z)
+  puts the clip back as it was, from the Recycle Bin, and sends the edited version there instead. The preview volume
+  slider is QuickClip's own level in the Windows volume mixer.
 - **Add sound** puts a song or sound effect on its own track: click **Add sound** or drop audio files onto the
   editor (onto the timeline to start them there). Drag a sound's block along its track to move it; it snaps to the
   clip's start and end, the in and out points and the playhead. Right-click it to start it at the playhead.
@@ -53,7 +63,9 @@ Uninstall it from **Settings → Apps**. Nothing else needs installing (.NET is 
 Prefer no installer? The **-win-x64.zip** on the same page runs from any folder.
 
 QuickClip checks for new releases when it starts (turn that off under **Settings → Updates**) and can install them
-for you; installed copies update by running the new setup silently, unzipped copies replace their own files.
+for you; installed copies update by running the new setup silently, unzipped copies replace their own files. The
+**Stable** channel gets tested releases; **Nightly** also gets development builds (GitHub prereleases named like
+`0.6.0-nightly.1`) as new features are made.
 
 Requires Windows 10 version 2004 or later. Separating voice chat and music from desktop audio needs Windows 11 (or
 Windows 10 build 20348+); on older Windows 10 the Desktop track records all system audio and the Chat and Music tracks
@@ -79,7 +91,7 @@ On Windows 11 the right-click entry sits under **Show more options**. To put it 
 | ↑ / ↓ · M | Volume up / down · mute |
 | F or double-click | Full screen (Esc leaves it) |
 | Page Up / Page Down | Previous / next clip |
-| E · Delete · Esc | Edit · move to the Recycle Bin · back to the gallery |
+| S · E · Delete · Esc | Share · edit · move to the Recycle Bin · back to the gallery |
 
 ### Editor keys
 
@@ -93,6 +105,7 @@ On Windows 11 the right-click entry sits under **Show more options**. To put it 
 | L · C · M | Loop selection · crop on/off · mute |
 | + / − / 0 | Zoom timeline in / out / fit (or mouse wheel; Shift+wheel scrolls) |
 | Ctrl+O / Ctrl+E / Ctrl+S | Open / export as new file / save over original |
+| Ctrl+Z | Undo saving over the original |
 
 ### Command line
 

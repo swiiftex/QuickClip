@@ -12,11 +12,20 @@
             <DataTemplate x:Key="ClipCard" DataType="{x:Type gallery:ClipItem}">
                 <Border x:Name="Card" Width="264" Margin="0,0,14,16" CornerRadius="8" Background="{StaticResource CardBrush}"
                         BorderThickness="1" BorderBrush="Transparent" Cursor="Hand" ToolTip="{Binding Title}"
-                        MouseLeftButtonUp="Card_MouseLeftButtonUp" Loaded="Card_Loaded" DataContextChanged="Card_DataContextChanged">
+                        MouseLeftButtonUp="Card_MouseLeftButtonUp" Loaded="Card_Loaded" DataContextChanged="Card_DataContextChanged"
+                        PreviewMouseLeftButtonDown="Card_PreviewMouseLeftButtonDown" MouseMove="Card_MouseMove">
                     <Border.ContextMenu>
-                        <ContextMenu>
+                        <ContextMenu Opened="ClipMenu_Opened">
                             <MenuItem Header="Play" Click="PlayClip_Click" FontWeight="SemiBold" />
+                            <MenuItem Header="Share (copy to clipboard)" Click="ShareClip_Click" ToolTip="Share: makes a copy under 30 MB (at most 60 fps, all audio mixed into one track) and copies it to the clipboard to paste anywhere. The original stays as it is." />
                             <MenuItem Header="Open in editor" Click="OpenClip_Click" />
+                            <Separator />
+                            <!-- Filled in when the menu opens: every project, then New project -->
+                            <MenuItem Header="Add to project" Tag="projects">
+                                <MenuItem Header="New project…" />
+                            </MenuItem>
+                            <MenuItem Header="Copy to folder…" Tag="copy" Click="CopyClipsToFolder_Click" />
+                            <Separator />
                             <MenuItem Header="Open with default app" Click="OpenWith_Click" />
                             <MenuItem Header="Show in Explorer" Click="RevealClip_Click" />
                             <Separator />
@@ -41,6 +50,9 @@
                                 <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE768;" FontSize="18" Foreground="White"
                                            HorizontalAlignment="Center" VerticalAlignment="Center" Margin="3,0,0,0" />
                             </Border>
+                            <Button x:Name="ShareBadge" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="6" Padding="8,6"
+                                    Style="{StaticResource IconButton}" Content="&#xE72D;" FontSize="13" Background="#B0000000" Foreground="White"
+                                    Visibility="Collapsed" Cursor="Arrow" Click="ShareClip_Click" ToolTip="Share: makes a copy under 30 MB (at most 60 fps, all audio mixed into one track) and copies it to the clipboard to paste anywhere. The original stays as it is." />
                             <!-- Ticks the clip for "Add to project" / "Copy to folder" -->
                             <Border x:Name="PickBox" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="6" Padding="6,2,0,2" CornerRadius="5"
                                     Background="#A0000000" Visibility="Collapsed">
@@ -60,11 +72,13 @@
                         <Setter TargetName="Card" Property="BorderBrush" Value="{DynamicResource AccentFillColorDefaultBrush}" />
                         <Setter TargetName="PlayBadge" Property="Visibility" Value="Visible" />
                         <Setter TargetName="PickBox" Property="Visibility" Value="Visible" />
+                        <Setter TargetName="ShareBadge" Property="Visibility" Value="Visible" />
                     </Trigger>
                     <!-- While anything is selected every clip shows its checkbox, and clicking a clip ticks it -->
                     <DataTrigger Binding="{Binding HasSelection, RelativeSource={RelativeSource AncestorType=views:GalleryView}}" Value="True">
                         <Setter TargetName="PickBox" Property="Visibility" Value="Visible" />
                         <Setter TargetName="PlayBadge" Property="Visibility" Value="Collapsed" />
+                        <Setter TargetName="ShareBadge" Property="Visibility" Value="Collapsed" />
                     </DataTrigger>
                     <DataTrigger Binding="{Binding IsSelected}" Value="True">
                         <Setter TargetName="PickBox" Property="Visibility" Value="Visible" />
@@ -105,13 +119,16 @@
 
                     <DockPanel Margin="8,22,0,6">
                         <Button DockPanel.Dock="Right" Style="{StaticResource IconButton}" Content="&#xE710;" FontSize="12" Padding="7,4" Margin="0"
-                                Click="NewProject_Click" ToolTip="New project" />
+                                Click="NewProject_Click" ToolTip="New project (or drop clips here to start one with them)"
+                                AllowDrop="True" DragEnter="NewProject_DragOver" DragOver="NewProject_DragOver" Drop="NewProject_Drop" />
                         <TextBlock Text="PROJECTS" Style="{StaticResource SectionHeader}" Margin="0" VerticalAlignment="Center" />
                     </DockPanel>
                     <ListBox x:Name="ProjectList" Template="{StaticResource PlainList}" SelectionChanged="ProjectList_SelectionChanged">
                         <ListBox.ItemTemplate>
                             <DataTemplate>
-                                <DockPanel Background="Transparent">
+                                <!-- Clips dragged here from the gallery (or files from Explorer) are added to the project -->
+                                <DockPanel Background="Transparent" AllowDrop="True" DragEnter="Project_DragOver" DragOver="Project_DragOver"
+                                           DragLeave="Project_DragLeave" Drop="Project_Drop">
                                     <DockPanel.ContextMenu>
                                         <ContextMenu>
                                             <MenuItem Header="Rename…" Click="RenameProject_Click" />
@@ -127,7 +144,7 @@
                         </ListBox.ItemTemplate>
                     </ListBox>
                     <TextBlock x:Name="NoProjectsText" Style="{StaticResource Hint}" Margin="8,2,8,0"
-                               Text="Group clips for a montage: select clips, then Add to project." />
+                               Text="Group clips for a montage: select clips, then Add to project, or drag clips onto the + above." />
                 </StackPanel>
             </ScrollViewer>
         </Border>

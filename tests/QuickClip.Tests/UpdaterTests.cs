@@ -46,7 +46,7 @@ public sealed class UpdaterTests
     [Fact]
     public void Current_version_comes_from_the_project()
     {
-        Assert.Equal(V("0.5.0"), AppVersion.Current);
+        Assert.Equal(V("0.6.0"), AppVersion.Current);
     }
 
     private const string Releases = """
@@ -65,9 +65,9 @@ public sealed class UpdaterTests
         """;
 
     [Fact]
-    public void Beta_users_get_the_newest_release_including_betas()
+    public void The_nightly_channel_gets_the_newest_release_including_prereleases()
     {
-        var update = Updater.PickUpdate(Releases, V("0.3.0-beta"));
+        var update = Updater.PickUpdate(Releases, V("0.3.0-beta"), nightly: true);
         Assert.NotNull(update);
         Assert.Equal(V("0.4.0-beta"), update!.Version);
         Assert.Equal(new ReleaseAsset("https://x/0.4b.zip", 123, "ABCDEF"), update.Portable);
@@ -76,9 +76,9 @@ public sealed class UpdaterTests
     }
 
     [Fact]
-    public void Stable_users_only_get_stable_releases()
+    public void The_stable_channel_only_gets_stable_releases()
     {
-        var update = Updater.PickUpdate(Releases, V("0.3.0"));
+        var update = Updater.PickUpdate(Releases, V("0.3.0"), nightly: false);
         Assert.Equal(V("0.3.1"), update!.Version);
         Assert.Null(update.Setup); // nothing attached: the app sends people to the release page
         Assert.Null(update.Portable);
@@ -86,10 +86,29 @@ public sealed class UpdaterTests
     }
 
     [Fact]
+    public void Switching_channels_moves_on_to_that_channels_next_newer_release()
+    {
+        // A stable copy switched to nightly gets the newest nightly build.
+        Assert.Equal(V("0.4.0-beta"), Updater.PickUpdate(Releases, V("0.3.1"), nightly: true)!.Version);
+        // A nightly build switched to stable gets the next stable release, but never an older one.
+        Assert.Equal(V("0.3.1"), Updater.PickUpdate(Releases, V("0.3.0-beta"), nightly: false)!.Version);
+        Assert.Null(Updater.PickUpdate(Releases, V("0.4.0-beta"), nightly: false));
+    }
+
+    [Fact]
+    public void Nightly_builds_sort_before_their_release_and_read_well()
+    {
+        Assert.True(V("0.6.0") > V("0.6.0-nightly.3"));
+        Assert.True(V("0.6.0-nightly.10") > V("0.6.0-nightly.9"));
+        Assert.True(V("0.6.0-nightly.1") > V("0.5.0"));
+        Assert.Equal("0.6 nightly 3", V("0.6.0-nightly.3").Display);
+    }
+
+    [Fact]
     public void Nothing_newer_means_no_update()
     {
-        Assert.Null(Updater.PickUpdate(Releases, V("0.4.0-beta")));
-        Assert.Null(Updater.PickUpdate("[]", V("0.3.0-beta")));
+        Assert.Null(Updater.PickUpdate(Releases, V("0.4.0-beta"), nightly: true));
+        Assert.Null(Updater.PickUpdate("[]", V("0.3.0-beta"), nightly: true));
     }
 
     [Fact]

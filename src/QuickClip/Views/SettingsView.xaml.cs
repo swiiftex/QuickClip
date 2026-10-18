@@ -52,7 +52,7 @@ public partial class SettingsView : UserControl
 
     private void ShowUpdateState()
     {
-        VersionText.Text = $"You have QuickClip {AppVersion.Current.Display}" +
+        VersionText.Text = $"You have QuickClip {AppVersion.Current.Display}" + (AppVersion.Current.IsPrerelease ? " (a nightly build)" : "") +
                            (Updater.LastChecked is DateTime t ? $" · last checked {t:t}" : "");
         CheckUpdatesButton.IsEnabled = !Updater.IsChecking && !_installing;
         var release = Updater.Available;
@@ -69,6 +69,18 @@ public partial class SettingsView : UserControl
     }
 
     private async void CheckUpdates_Click(object sender, RoutedEventArgs e) => await Updater.CheckAsync();
+
+    private async void Channel_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (_loading || ChannelCombo.SelectedItem is not Choice { Value: string channel } || channel == Updater.Channel) return;
+        Updater.Channel = channel;
+        ShowChannelHint();
+        await Updater.CheckAsync(); // what's on offer depends on the channel
+    }
+
+    private void ShowChannelHint() => ChannelHint.Text = Updater.Channel == Updater.Nightly
+        ? "New features as they're made, before they're released. They may have bugs."
+        : "Tested releases. A nightly build you're on now stays until a newer stable release comes out.";
 
     private void WhatsNew_Click(object sender, RoutedEventArgs e) =>
         System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(Updater.Available?.PageUrl ?? Updater.ReleasesPage) { UseShellExecute = true });
@@ -168,6 +180,13 @@ public partial class SettingsView : UserControl
             }
             FolderBox.Text = s.ClipsFolder;
             AutoUpdateCheck.IsChecked = s.CheckForUpdates;
+            ChannelCombo.ItemsSource = new[]
+            {
+                new Choice("Stable", Updater.Stable),
+                new Choice("Nightly (development builds)", Updater.Nightly),
+            };
+            Select(ChannelCombo, Updater.Channel);
+            ShowChannelHint();
         }
         finally
         {

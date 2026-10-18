@@ -142,8 +142,6 @@
 
             <!-- Audio header -->
             <DockPanel Grid.Row="1" Grid.ColumnSpan="3" Margin="0,10,0,2" LastChildFill="False">
-                <CheckBox x:Name="MergeCheck" DockPanel.Dock="Right" Content="Merge all tracks into one when exporting" Checked="Merge_Changed" Unchecked="Merge_Changed"
-                          ToolTip="Mix every checked track (at its volume) into a single audio track in the exported file." />
                 <TextBlock x:Name="AudioHeader" Text="AUDIO TRACKS" Style="{StaticResource SectionHeader}" Margin="2,0,0,0" VerticalAlignment="Center" />
                 <Button x:Name="AddSoundButton" Style="{StaticResource TextButton}" Margin="12,0,0,0" Padding="9,3" VerticalAlignment="Center"
                         Click="AddSound_Click" ToolTip="Add a sound or song as another audio track, starting at the playhead. You can also drop audio files onto the editor.">
@@ -244,6 +242,14 @@
                                 Click="CancelExport_Click" ToolTip="Cancel export" />
                     </Grid>
                     <DockPanel Margin="0,8,0,0">
+                        <Button x:Name="UndoButton" DockPanel.Dock="Right" Style="{StaticResource TextButton}" Margin="6,0,0,0" Padding="9,3"
+                                Visibility="Collapsed" Click="Undo_Click"
+                                ToolTip="Put the clip back as it was before this edit, from the Recycle Bin (Ctrl+Z). The edited version goes to the Recycle Bin.">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE7A7;" VerticalAlignment="Center" Margin="0,0,6,0" />
+                                <TextBlock Text="Undo" />
+                            </StackPanel>
+                        </Button>
                         <Button x:Name="RevealButton" DockPanel.Dock="Right" Style="{StaticResource TextButton}" Content="Show" Margin="6,0,0,0" Padding="9,3"
                                 Visibility="Collapsed" Click="Reveal_Click" ToolTip="Show the exported file in Explorer" />
                         <TextBlock x:Name="StatusText" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center" Foreground="{StaticResource SubtleText}" />
@@ -331,6 +337,10 @@
                                 <ComboBox x:Name="AudioBitrateCombo" SelectionChanged="ExportOption_Changed" />
                             </StackPanel>
                         </Grid>
+                        <CheckBox x:Name="MergeCheck" Margin="0,10,0,0" Checked="Merge_Changed" Unchecked="Merge_Changed"
+                                  ToolTip="Mix every checked track (at its volume) into a single audio track in the exported file.">
+                            <TextBlock Text="Merge all audio tracks into one" TextWrapping="Wrap" />
+                        </CheckBox>
                         <DockPanel x:Name="TargetSizePanel" Margin="0,6,0,0" Visibility="Collapsed">
                             <TextBlock DockPanel.Dock="Right" Text="MB" VerticalAlignment="Center" Margin="8,0,0,0" Foreground="{StaticResource SubtleText}" />
                             <TextBlock DockPanel.Dock="Left" Text="Target size" VerticalAlignment="Center" Margin="0,0,8,0" Foreground="{StaticResource SubtleText}" FontSize="12" />

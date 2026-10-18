@@ -100,8 +100,71 @@ internal static class ShellIntegration
         ref uint bufferLength, IntPtr buffer);
 }
 
+/// <summary>A file in the Recycle Bin: its contents ($R…), Windows' note of where it came from ($I…), and when it went in.</summary>
+internal sealed record RecycledFile(string DataPath, string InfoPath, string OriginalPath, DateTime DeletedUtc);
+
 internal static class RecycleBin
 {
+    /// <summary>
+    /// The file most recently sent to the Recycle Bin from <paramref name="originalPath"/>, if that happened at or
+    /// after <paramref name="sinceUtc"/>. Read from the bin on the file's drive (<c>X:\$Recycle.Bin\&lt;your SID&gt;</c>).
+    /// </summary>
+    public static RecycledFile? FindLatest(string originalPath, DateTime sinceUtc)
+    {
+        string? root = Path.GetPathRoot(Path.GetFullPath(originalPath));
+        string? sid = System.Security.Principal.WindowsIdentity.GetCurrent().User?.Value;
+        if (string.IsNullOrEmpty(root) || sid == null) return null;
+        string bin = Path.Combine(root, "$Recycle.Bin", sid);
+        if (!Directory.Exists(bin)) return null;
+        RecycledFile? latest = null;
+        foreach (string info in Directory.EnumerateFiles(bin, "$I*"))
+        {
+            if (ReadInfo(info) is not { } entry || entry.DeletedUtc < sinceUtc
+                || !string.Equals(entry.Path, originalPath, StringComparison.OrdinalIgnoreCase)) continue;
+            string data = Path.Combine(bin, "$R" + Path.GetFileName(info)[2..]);
+            if (File.Exists(data) && (latest == null || entry.DeletedUtc > latest.DeletedUtc))
+                latest = new RecycledFile(data, info, entry.Path, entry.DeletedUtc);
+        }
+        return latest;
+    }
+
+    /// <summary>Where a $I note says its file came from, and when it was deleted (Windows Vista's layout and 10's).</summary>
+    internal static (string Path, DateTime DeletedUtc)? ReadInfo(string infoFile)
+    {
+        try
+        {
+            byte[] b = File.ReadAllBytes(infoFile);
+            if (b.Length < 26) return null;
+            long version = BitConverter.ToInt64(b, 0);
+            var deleted = DateTime.FromFileTimeUtc(BitConverter.ToInt64(b, 16));
+            string path;
+            if (version >= 2)
+            {
+                int chars = BitConverter.ToInt32(b, 24);
+                if (chars < 1 || 28 + chars * 2 > b.Length) return null;
+                path = System.Text.Encoding.Unicode.GetString(b, 28, (chars - 1) * 2);
+            }
+            else
+            {
+                path = System.Text.Encoding.Unicode.GetString(b, 24, Math.Min(520, (b.Length - 24) & ~1));
+                int end = path.IndexOf('\0');
+                if (end >= 0) path = path[..end];
+            }
+            return (path.TrimEnd('\0'), deleted);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Takes a file out of the Recycle Bin to <paramref name="destination"/>.</summary>
+    public static void Restore(RecycledFile file, string destination)
+    {
+        File.Move(file.DataPath, destination);
+        try { File.Delete(file.InfoPath); } catch { } // a leftover note is an empty entry Explorer tidies away
+    }
+
     /// <summary>Moves a file or folder to the Recycle Bin. Returns false if that failed or Windows would have deleted it permanently.</summary>
     public static bool TrySend(string path)
     {

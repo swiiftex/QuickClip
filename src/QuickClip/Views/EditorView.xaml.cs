@@ -62,6 +62,8 @@ public partial class EditorView : UserControl
     private bool _uiReady;
     private bool _refreshingEncoders;
     private bool _closed;
+    private (string Clip, DateTime RecycledUtc)? _undo; // the open clip was just saved over; its original is in the Recycle Bin
+    private bool _settingMerge;
     private int _timePosQueued;
     private double _mpvTimePos;
 
@@ -149,7 +151,8 @@ public partial class EditorView : UserControl
         _ = Task.Run(() => DeletePreviews(olderThan: TimeSpan.FromDays(1)));
 
         LoopToggle.IsChecked = _settings.Loop;
-        MergeCheck.IsChecked = _settings.MergeAudio;
+        // Merging always starts off (it used to be remembered, which quietly merged every later export).
+        _settings.MergeAudio = false;
         _uiReady = true;
 
         if (_pendingFile != null)
@@ -196,7 +199,6 @@ public partial class EditorView : UserControl
     private void SaveSettings()
     {
         _settings.Loop = LoopToggle.IsChecked == true;
-        _settings.MergeAudio = MergeCheck.IsChecked == true;
         if (FormatCombo.SelectedItem is Choice f) _settings.Format = (string)f.Value;
         if (VideoModeCombo.SelectedItem is Choice m) _settings.VideoMode = (string)m.Value;
         if (QualityCombo.SelectedItem is Choice q) _settings.Quality = (string)q.Value;
@@ -309,7 +311,9 @@ public partial class EditorView : UserControl
             _media = info;
             _settings.LastFolder = Path.GetDirectoryName(path);
             _lastExport = null;
+            _undo = null;
             RevealButton.Visibility = Visibility.Collapsed;
+            UndoButton.Visibility = Visibility.Collapsed;
             StatusText.Text = "";
 
             FileTitle = Path.GetFileName(path);
@@ -623,7 +627,23 @@ public partial class EditorView : UserControl
         if (sender is FrameworkElement { DataContext: AudioTrack t }) t.Volume = 1;
     }
 
-    private void Merge_Changed(object sender, RoutedEventArgs e) => UpdateSummary();
+    private void Merge_Changed(object sender, RoutedEventArgs e)
+    {
+        if (!_settingMerge && MergeCheck.IsChecked == true)
+        {
+            var answer = MessageBox.Show(OwnerWindow,
+                "Merge all audio tracks into one when exporting?\n\nThe exported file will have a single audio track, so its game, " +
+                "chat, mic and music can't be turned up or down separately any more.",
+                "Merge audio tracks", MessageBoxButton.OKCancel, MessageBoxImage.Question);
+            if (answer != MessageBoxResult.OK)
+            {
+                _settingMerge = true;
+                MergeCheck.IsChecked = false;
+                _settingMerge = false;
+            }
+        }
+        UpdateSummary();
+    }
 
     private void Transport_SizeChanged(object sender, SizeChangedEventArgs e)
     {
@@ -896,6 +916,7 @@ public partial class EditorView : UserControl
             case Key.O when ctrl: _ = PromptOpenAsync(); break;
             case Key.E when ctrl: ExportNew_Click(this, e); break;
             case Key.S when ctrl: SaveOver_Click(this, e); break;
+            case Key.Z when ctrl && _undo != null: Undo_Click(this, e); break;
             case Key.Space: TogglePlay(); break;
             case Key.Left when ctrl: SeekRelative(-5); break;
             case Key.Right when ctrl: SeekRelative(5); break;
@@ -1162,6 +1183,7 @@ public partial class EditorView : UserControl
         ExportButton.IsEnabled = _media != null && !busy;
         SaveOverButton.IsEnabled = _media != null && !busy;
         MergeCheck.IsEnabled = _tracks.Count > 1;
+        MergeCheck.Visibility = container.IsGif ? Visibility.Collapsed : Visibility.Visible;
         AddSoundButton.IsEnabled = _media != null;
         UpdateSummary();
     }
@@ -1266,9 +1288,16 @@ public partial class EditorView : UserControl
         if (_media == null || _exportCts != null) return;
         var container = CurrentContainer(forOverwrite: true);
         string fileName = Path.GetFileName(_media.Path);
-        var answer = MessageBox.Show(OwnerWindow,
-            $"Replace \"{fileName}\" with the edited clip?\n\nThe original will be moved to the Recycle Bin.",
-            "Save over original", MessageBoxButton.OKCancel, MessageBoxImage.Question);
+        int tracks = _tracks.Count(t => t.Include);
+        bool merging = MergeCheck.IsChecked == true && tracks > 1 && !container.SingleAudioTrack;
+        var answer = merging
+            ? MessageBox.Show(OwnerWindow,
+                $"Merge all audio tracks is on.\n\nSaving over \"{fileName}\" mixes its {tracks} audio tracks into one, so the clip " +
+                "loses its separate game, chat, mic and music tracks. The original will be moved to the Recycle Bin.\n\nSave over it anyway?",
+                "Merge tracks and save over original?", MessageBoxButton.OKCancel, MessageBoxImage.Warning, MessageBoxResult.Cancel)
+            : MessageBox.Show(OwnerWindow,
+                $"Replace \"{fileName}\" with the edited clip?\n\nThe original will be moved to the Recycle Bin.",
+                "Save over original", MessageBoxButton.OKCancel, MessageBoxImage.Question);
         if (answer != MessageBoxResult.OK) return;
 
         string dir = Path.GetDirectoryName(_media.Path)!;
@@ -1295,6 +1324,8 @@ public partial class EditorView : UserControl
         _exportCts = cts;
         _exportPath = outputPath;
         RevealButton.Visibility = Visibility.Collapsed;
+        UndoButton.Visibility = Visibility.Collapsed;
+        _undo = null;
         ProgressPanel.Visibility = Visibility.Visible;
         ExportProgress.Value = 0;
         StatusText.Text = "Exporting…";
@@ -1314,10 +1345,13 @@ public partial class EditorView : UserControl
             if (overwrite)
             {
                 StatusText.Text = "Replacing the original…";
-                final = await ReplaceOriginalAsync(outputPath);
+                DateTime? recycled;
+                (final, recycled) = await ReplaceOriginalAsync(outputPath);
+                if (recycled is { } when) _undo = (final, when);
             }
             _lastExport = final;
             RevealButton.Visibility = Visibility.Visible;
+            UndoButton.Visibility = _undo != null ? Visibility.Visible : Visibility.Collapsed;
             StatusText.Text = $"Saved {Path.GetFileName(final)} ({Fmt.Size(new FileInfo(final).Length)}) in {sw.Elapsed.TotalSeconds:0.#} s";
         }
         catch (OperationCanceledException)
@@ -1340,21 +1374,17 @@ public partial class EditorView : UserControl
         }
     }
 
-    /// <summary>Swaps the exported temp file in for the original (which goes to the Recycle Bin), then reloads it.</summary>
-    private async Task<string> ReplaceOriginalAsync(string tempPath)
+    /// <summary>
+    /// Swaps the exported temp file in for the original (which goes to the Recycle Bin), then reloads it. Returns the
+    /// edited file and, if the original went to the Recycle Bin, when (so it can be put back).
+    /// </summary>
+    private async Task<(string Final, DateTime? RecycledUtc)> ReplaceOriginalAsync(string tempPath)
     {
         string original = _media!.Path;
         DateTime created = File.GetCreationTime(original);
+        await ReleaseFileAsync();
 
-        // Let go of the file: stop playback and waveform readers.
-        _waveCts?.Cancel();
-        if (_player != null)
-        {
-            _player.Command("stop");
-            for (int i = 0; i < 100 && !_idle; i++) await Task.Delay(30);
-        }
-        await Task.Delay(150);
-
+        DateTime before = DateTime.UtcNow.AddSeconds(-2);
         bool recycled = await RetryAsync(() => RecycleBin.TrySend(original));
         if (!recycled && File.Exists(original))
         {
@@ -1367,7 +1397,7 @@ public partial class EditorView : UserControl
                 string keep = UniquePath(dir, Path.GetFileNameWithoutExtension(original) + " (edited)", Path.GetExtension(original));
                 File.Move(tempPath, keep);
                 await OpenFileAsync(original);
-                return keep;
+                return (keep, null);
             }
             await RetryAsync(() => { File.Delete(original); return true; });
         }
@@ -1375,7 +1405,73 @@ public partial class EditorView : UserControl
         await RetryAsync(() => { File.Move(tempPath, original); return true; });
         try { File.SetCreationTime(original, created); } catch { }
         await OpenFileAsync(original);
-        return original;
+        return (original, recycled ? before : null);
+    }
+
+    /// <summary>Lets go of the open file: stops playback and the waveform and sound readers.</summary>
+    private async Task ReleaseFileAsync()
+    {
+        _waveCts?.Cancel();
+        _soundCts?.Cancel();
+        if (_player != null)
+        {
+            _player.Command("stop");
+            for (int i = 0; i < 100 && !_idle; i++) await Task.Delay(30);
+        }
+        await Task.Delay(150);
+    }
+
+    /// <summary>
+    /// Puts the clip back as it was before it was saved over: the original comes out of the Recycle Bin and the edited
+    /// version goes in, so this can be undone the same way.
+    /// </summary>
+    private async void Undo_Click(object sender, RoutedEventArgs e) => await UndoAsync();
+
+    private async Task UndoAsync()
+    {
+        if (_undo is not { } undo || _exportCts != null || _loading) return;
+        string clip = undo.Clip, dir = Path.GetDirectoryName(clip)!;
+        string name = Path.GetFileNameWithoutExtension(clip), ext = Path.GetExtension(clip);
+        string? parked = null;
+        UndoButton.IsEnabled = false;
+        RevealButton.Visibility = Visibility.Collapsed;
+        StatusText.Text = "Putting the original back…";
+        try
+        {
+            var original = RecycleBin.FindLatest(clip, undo.RecycledUtc)
+                ?? throw new IOException("The original isn't in the Recycle Bin any more.");
+            await ReleaseFileAsync();
+            // Out of the Recycle Bin beside the clip first, so nothing is lost if the edited version can't be moved.
+            parked = UniquePath(dir, name + ".quickclip-restore", ext);
+            await RetryAsync(() => { RecycleBin.Restore(original, parked); return true; });
+            if (!await RetryAsync(() => RecycleBin.TrySend(clip)))
+                throw new IOException("The edited clip couldn't be moved to the Recycle Bin.");
+            await RetryAsync(() => { File.Move(parked, clip); return true; });
+            parked = null;
+            Log.Write($"Undid the edit of {clip}: the original is back, the edited version is in the Recycle Bin");
+            await OpenFileAsync(clip);
+            StatusText.Text = "The clip is back as it was before the edit. The edited version is in the Recycle Bin.";
+        }
+        catch (Exception ex)
+        {
+            Log.Write("Undoing the edit failed: " + ex);
+            string message = "The edit couldn't be undone:\n\n" + ex.Message;
+            if (parked != null && File.Exists(parked))
+            {
+                // Keep the original where it can be found rather than back in the bin.
+                string keep = UniquePath(dir, name + " (before edit)", ext);
+                try { File.Move(parked, keep); parked = keep; } catch { }
+                message += $"\n\nThe original is saved as \"{Path.GetFileName(parked)}\" next to the clip.";
+            }
+            StatusText.Text = "Undo failed.";
+            MessageBox.Show(OwnerWindow, message, "QuickClip", MessageBoxButton.OK, MessageBoxImage.Warning);
+            if (File.Exists(clip)) await OpenFileAsync(clip);
+        }
+        finally
+        {
+            UndoButton.IsEnabled = true;
+            UndoButton.Visibility = _undo != null ? Visibility.Visible : Visibility.Collapsed;
+        }
     }
 
     private static async Task<bool> RetryAsync(Func<bool> action)
@@ -1432,5 +1528,15 @@ public partial class EditorView : UserControl
     internal void MoveSoundForRender(double to) => _tracks.Last(t => t.IsSound).MoveTo(to);
     internal void PlayForRender() => TogglePlay();
     internal void SeekForRender(double t) => Seek(t);
+    internal bool CanUndo => _undo != null;
+    internal string StatusForRender => StatusText.Text;
+    internal Task UndoForRender() => UndoAsync();
+    internal Task SaveOverForRender(double newIn)
+    {
+        _timeline.SetIn(newIn);
+        string dir = Path.GetDirectoryName(_media!.Path)!;
+        return RunExportAsync(UniquePath(dir, Path.GetFileNameWithoutExtension(_media.Path) + ".quickclip-tmp", Path.GetExtension(_media.Path)),
+            CurrentContainer(forOverwrite: true), overwrite: true);
+    }
 #endif
 }

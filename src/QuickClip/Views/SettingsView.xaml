@@ -54,6 +54,15 @@
                         <Button Style="{StaticResource TextButton}" Content="What's new" Margin="8,0,0,0" Click="WhatsNew_Click" />
                     </StackPanel>
                     <ProgressBar x:Name="UpdateProgress" Height="6" Margin="0,12,0,0" Maximum="1" Visibility="Collapsed" />
+                    <Grid Style="{StaticResource Row}" Margin="0,14,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="160" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Channel" VerticalAlignment="Center" />
+                        <ComboBox x:Name="ChannelCombo" Grid.Column="1" SelectionChanged="Channel_Changed" />
+                    </Grid>
+                    <TextBlock x:Name="ChannelHint" Style="{StaticResource Hint}" Margin="160,4,0,0" TextWrapping="Wrap" />
                     <CheckBox x:Name="AutoUpdateCheck" Content="Check for updates automatically when QuickClip starts" Margin="0,12,0,0"
                               Checked="AutoUpdate_Changed" Unchecked="AutoUpdate_Changed" />
                 </StackPanel>

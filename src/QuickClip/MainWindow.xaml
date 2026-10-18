@@ -62,6 +62,20 @@
                         <TextBlock x:Name="UpdateButtonText" Text="Update available" />
                     </StackPanel>
                 </Button>
+                <!-- Instant share: progress while the copy is made, then where it went -->
+                <StackPanel x:Name="SharePanel" DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center" Margin="12,0,12,0"
+                            Visibility="Collapsed">
+                    <TextBlock x:Name="ShareIcon" FontFamily="{StaticResource IconFont}" Text="&#xE72D;" VerticalAlignment="Center" Margin="0,0,8,0"
+                               Foreground="{DynamicResource AccentFillColorDefaultBrush}" />
+                    <TextBlock x:Name="ShareName" VerticalAlignment="Center" FontSize="12.5" FontWeight="SemiBold" MaxWidth="200"
+                               TextTrimming="CharacterEllipsis" Margin="0,0,8,0" />
+                    <TextBlock x:Name="ShareText" VerticalAlignment="Center" FontSize="12.5" />
+                    <ProgressBar x:Name="ShareProgress" Width="150" Height="6" Minimum="0" Maximum="1" Margin="10,0,0,0" VerticalAlignment="Center" />
+                    <Button x:Name="ShareShowButton" Style="{StaticResource TextButton}" Content="Show" Padding="9,3" Margin="8,0,0,0"
+                            Click="ShareShow_Click" ToolTip="Show the copy in Explorer" />
+                    <Button x:Name="ShareCloseButton" Style="{StaticResource IconButton}" Content="&#xE711;" FontSize="10" Padding="6,4" Margin="4,0,0,0"
+                            Click="ShareClose_Click" />
+                </StackPanel>
                 <Ellipse x:Name="RecDot" DockPanel.Dock="Left" Width="9" Height="9" Margin="0,0,9,0" VerticalAlignment="Center" Fill="#666" />
                 <TextBlock x:Name="RecStatus" VerticalAlignment="Center" FontSize="12.5" TextTrimming="CharacterEllipsis" Text="Starting…" />
             </DockPanel>
