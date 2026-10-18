@@ -180,6 +180,7 @@ public partial class SettingsView : UserControl
             CloseTrayCheck.IsChecked = s.CloseToTray;
             SoundCheck.IsChecked = s.ClipSound;
             MotionBlurCheck.IsChecked = s.ShareMotionBlur;
+            ShowShareSize();
             ShellCheck.IsChecked = SafeIsRegistered();
             if (ShellIntegration.IsMenuPackageInstalled())
             {
@@ -309,6 +310,28 @@ public partial class SettingsView : UserControl
             _restartTimer.Stop();
             _restartTimer.Start();
         }
+    }
+
+    private void ShowShareSize() =>
+        ShareSizeBox.Text = AppSettings.Current.ShareSizeMB.ToString("0.##", System.Globalization.CultureInfo.CurrentCulture);
+
+    private void ShareSize_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Escape) ShowShareSize();
+        if (e.Key is Key.Enter or Key.Escape) Keyboard.ClearFocus();
+    }
+
+    /// <summary>The share size limit, from 1 MB up; anything that isn't a number goes back to what it was.</summary>
+    private void ShareSize_Commit(object sender, KeyboardFocusChangedEventArgs e)
+    {
+        var s = AppSettings.Current;
+        if (double.TryParse(ShareSizeBox.Text.Replace("MB", "", StringComparison.OrdinalIgnoreCase).Trim(),
+                System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.CurrentCulture, out var mb) && mb > 0)
+        {
+            s.ShareSizeMB = Math.Clamp(Math.Round(mb, 1), 1, 4000);
+            s.Save();
+        }
+        ShowShareSize();
     }
 
     /// <summary>Bitrate, memory and clip size for the current choices.</summary>

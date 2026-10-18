@@ -53,6 +53,8 @@ public partial class EditorView : UserControl
     private CancellationTokenSource? _exportCts;
     private string? _exportPath;
     private string? _lastExport;
+    private List<double>? _keyframes;               // when the open video's keyframes are; null until known
+    private CancellationTokenSource? _keyframeCts;
 
     private bool _paused = true;
     private bool _eof;
@@ -122,7 +124,7 @@ public partial class EditorView : UserControl
         DragLeave += OnDragLeave;
         Loaded += OnLoaded;
 
-        foreach (var combo in new[] { AspectCombo, FormatCombo, VideoModeCombo, EncoderCombo, QualityCombo, ResolutionCombo, FpsCombo, AudioBitrateCombo })
+        foreach (var combo in new[] { AspectCombo, FormatCombo, EncoderCombo, QualityCombo, ResolutionCombo, FpsCombo, AudioBitrateCombo })
             combo.DropDownClosed += ComboBox_DropDownClosed;
 
         InitOptionLists();
@@ -202,10 +204,6 @@ public partial class EditorView : UserControl
     {
         _settings.Loop = LoopToggle.IsChecked == true;
         if (FormatCombo.SelectedItem is Choice f) _settings.Format = (string)f.Value;
-        if (VideoModeCombo.SelectedItem is Choice m) _settings.VideoMode = (string)m.Value;
-        if (QualityCombo.SelectedItem is Choice q) _settings.Quality = (string)q.Value;
-        if (ResolutionCombo.SelectedItem is Choice r) _settings.Resolution = (int)r.Value;
-        if (FpsCombo.SelectedItem is Choice fps) _settings.Fps = (double)fps.Value;
         if (AudioBitrateCombo.SelectedItem is Choice ab) _settings.AudioBitrate = (int)ab.Value;
         if (double.TryParse(TargetSizeBox.Text, NumberStyles.Float, CultureInfo.CurrentCulture, out var mb) && mb > 0)
             _settings.TargetSizeMB = mb;
@@ -362,14 +360,44 @@ public partial class EditorView : UserControl
             ShowMessage(info.Video == null ? "♪  Audio only" : null);
 
             StartWaveforms();
+            _ = LoadKeyframesAsync(info);
+            // Every clip starts out copied as it is, whatever the last one was exported as.
+            Select(QualityCombo, "original");
+            Select(ResolutionCombo, 0);
+            FpsCombo.SelectedItem = null;
+            EncoderCombo.SelectedItem = null;
             RefreshFormatList();
             RefreshFpsList();
+            RefreshEncoderList();
             UpdateUiState();
             Root.Focus();
         }
         finally
         {
             _loading = false;
+        }
+    }
+
+    /// <summary>Finds the video's keyframes: a trimmed clip can be copied rather than re-encoded when it starts on one.</summary>
+    private async Task LoadKeyframesAsync(MediaInfo media)
+    {
+        _keyframeCts?.Cancel();
+        _keyframes = null;
+        if (media.Video == null) return;
+        var cts = _keyframeCts = new CancellationTokenSource();
+        try
+        {
+            var times = await MediaInfo.KeyframesAsync(media, cts.Token);
+            if (cts.IsCancellationRequested || _media != media) return;
+            _keyframes = times;
+            UpdateSummary();
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            Log.Write("Listing the keyframes failed: " + ex.Message);
         }
     }
 
@@ -971,7 +999,7 @@ public partial class EditorView : UserControl
     {
         _crop.SetEnabled(CropCheck.IsChecked == true);
         CropPanel.IsEnabled = _crop.Enabled;
-        if (_crop.Enabled) OptionsExpander.IsExpanded = true; // turned on with C: show its settings
+        if (_crop.Enabled) CropExpander.IsExpanded = true; // turned on with C: show its settings
         UpdateUiState();
     }
 
@@ -1062,24 +1090,17 @@ public partial class EditorView : UserControl
         };
         AspectCombo.SelectedIndex = 0;
 
-        VideoModeCombo.ItemsSource = new[]
-        {
-            new Choice("Re-encode (frame-accurate, allows crop)", "encode"),
-            new Choice("Stream copy (instant, lossless, cuts on keyframes)", "copy"),
-        };
-        Select(VideoModeCombo, _settings.VideoMode);
-
         QualityCombo.ItemsSource = new[]
         {
-            new Choice("Best (large file)", "best"), new Choice("High", "high"), new Choice("Good", "good"),
-            new Choice("Small", "small"), new Choice("Target file size…", "size"),
+            new Choice("Same as original", "original"), new Choice("Best (large file)", "best"), new Choice("High", "high"),
+            new Choice("Good", "good"), new Choice("Small", "small"), new Choice("Target file size…", "size"),
         };
-        Select(QualityCombo, _settings.Quality);
+        Select(QualityCombo, "original");
         TargetSizeBox.Text = _settings.TargetSizeMB.ToString("0.##", CultureInfo.CurrentCulture);
 
         ResolutionCombo.ItemsSource = new[] { 0, 2160, 1440, 1080, 720, 480, 360 }
             .Select(r => new Choice(r == 0 ? "Original" : $"{r}p", r)).ToArray();
-        Select(ResolutionCombo, _settings.Resolution);
+        Select(ResolutionCombo, 0);
 
         RefreshFpsList();
 
@@ -1114,7 +1135,7 @@ public partial class EditorView : UserControl
     /// </summary>
     private void RefreshFpsList()
     {
-        object current = (FpsCombo.SelectedItem as Choice)?.Value ?? _settings.Fps;
+        object current = (FpsCombo.SelectedItem as Choice)?.Value ?? 0.0;
         var items = new List<Choice> { new("Original", 0.0) };
         if (_media?.Video is { } v && v.IsBt709 && MotionBlur.Helps(v.Fps, 60))
             items.Add(new Choice("Smooth 60 fps", SmoothFps));
@@ -1123,13 +1144,18 @@ public partial class EditorView : UserControl
         Select(FpsCombo, current);
     }
 
+    /// <summary>
+    /// Encoders for the chosen format. "Same as original" (when the format can hold the original's codec) copies the
+    /// video when nothing else needs it re-encoded, and otherwise re-encodes it to the same codec.
+    /// </summary>
     private void RefreshEncoderList()
     {
         var container = CurrentContainer(forOverwrite: false);
-        var list = VideoEncoders.All
-            .Where(e => e.Export && _encoders.Contains(e.Id) && container.VideoFamilies.Contains(e.Family))
-            .Select(e => new Choice(e.Label, e.Id))
-            .ToList();
+        object? current = (EncoderCombo.SelectedItem as Choice)?.Value;
+        var list = new List<Choice>();
+        if (_media?.Video is { } v && container.CanCopyVideo(v.Codec))
+            list.Add(new Choice($"Same as original ({ExportBuilder.CodecName(v.Codec)})", ""));
+        list.AddRange(EncodersFor(container).Select(e => new Choice(e.Label, e.Id)));
         if (list.Count == 0)
             list.Add(new Choice(container.FallbackVideoEncoder != null ? $"Automatic ({container.FallbackVideoEncoder})" : "Automatic", ""));
 
@@ -1137,9 +1163,9 @@ public partial class EditorView : UserControl
         try
         {
             EncoderCombo.ItemsSource = list;
-            // The user's last pick if this format allows it, else a fast GPU H.264 encoder, then x264, then anything.
-            var preferred = new[] { _settings.Encoder, "h264_nvenc", "h264_amf", "h264_qsv", "libx264" }
-                .FirstOrDefault(id => list.Any(c => c.Value.Equals(id)));
+            // What was picked if this format allows it, else the original's codec, else a fast GPU H.264 encoder.
+            var preferred = new[] { current, "", _settings.Encoder, "h264_nvenc", "h264_amf", "h264_qsv", "libx264" }
+                .FirstOrDefault(id => id != null && list.Any(c => c.Value.Equals(id)));
             if (preferred != null) Select(EncoderCombo, preferred);
             else EncoderCombo.SelectedIndex = 0;
         }
@@ -1147,6 +1173,25 @@ public partial class EditorView : UserControl
         {
             _refreshingEncoders = false;
         }
+    }
+
+    private IEnumerable<VideoEncoder> EncodersFor(Container container) =>
+        VideoEncoders.All.Where(e => e.Export && _encoders.Contains(e.Id) && container.VideoFamilies.Contains(e.Family));
+
+    /// <summary>
+    /// The encoder for re-encoding to the original's codec: the one last picked if it makes that codec, else the
+    /// first available (GPU first). When the format can't take that codec, the usual fast H.264 choice.
+    /// </summary>
+    private string SameCodecEncoder(Container container)
+    {
+        var usable = EncodersFor(container).ToList();
+        string family = _media?.Video?.Codec ?? "";
+        var same = usable.Where(e => e.Family == family).ToList();
+        var pick = same.FirstOrDefault(e => e.Id == _settings.Encoder) ?? same.FirstOrDefault();
+        if (pick != null) return pick.Id;
+        return new[] { _settings.Encoder, "h264_nvenc", "h264_amf", "h264_qsv", "libx264" }
+                   .FirstOrDefault(id => usable.Any(e => e.Id == id))
+               ?? usable.FirstOrDefault()?.Id ?? "";
     }
 
     private Container CurrentContainer(bool forOverwrite)
@@ -1180,21 +1225,18 @@ public partial class EditorView : UserControl
         bool busy = _exportCts != null;
         bool videoOut = (container.HasVideo || container.IsGif) && (hasVideo || _media == null);
 
-        VideoOptions.Visibility = videoOut ? Visibility.Visible : Visibility.Collapsed;
-        VideoModeCombo.IsEnabled = !container.IsGif;
-        bool copy = (VideoModeCombo.SelectedItem as Choice)?.Value as string == "copy" && !container.IsGif;
-        EncodeOptions.Visibility = copy ? Visibility.Collapsed : Visibility.Visible;
-        EncoderCombo.IsEnabled = !container.IsGif && EncoderCombo.Items.Count > 1;
-        bool quality = videoOut && !copy && !container.IsGif;
-        QualityOptions.Visibility = quality ? Visibility.Visible : Visibility.Collapsed;
-        TargetSizePanel.Visibility = quality && (QualityCombo.SelectedItem as Choice)?.Value as string == "size"
-            ? Visibility.Visible : Visibility.Collapsed;
-        AudioOptions.Visibility = container.IsGif ? Visibility.Collapsed : Visibility.Visible;
+        static Visibility Show(bool show) => show ? Visibility.Visible : Visibility.Collapsed;
+        bool videoEncoding = videoOut && !container.IsGif;
+        CropExpander.Visibility = Show(videoOut);
+        FpsExpander.Visibility = Show(videoOut);
+        SmoothFpsHint.Visibility = Show(FpsCombo.Items.OfType<Choice>().Any(c => c.Value is SmoothFps));
+        EncodingExpander.Visibility = Show(!container.IsGif);
+        VideoEncodingOptions.Visibility = Show(videoEncoding);
+        EncoderCombo.IsEnabled = EncoderCombo.Items.Count > 1;
+        TargetSizePanel.Visibility = Show(videoEncoding && (QualityCombo.SelectedItem as Choice)?.Value as string == "size");
+        AudioOptions.Visibility = Show(!container.IsGif);
+        ResolutionOptions.Visibility = Show(videoOut);
 
-        Grid.SetColumn(AudioOptions, quality ? 2 : 0);
-        Grid.SetColumnSpan(AudioOptions, quality ? 1 : 3);
-
-        CropSection.Visibility = hasVideo || _media == null ? Visibility.Visible : Visibility.Collapsed;
         CropCheck.IsEnabled = hasVideo && !busy;
         CropPanel.IsEnabled = _crop.Enabled && !busy;
         ExportButton.IsEnabled = _media != null && !busy;
@@ -1213,31 +1255,83 @@ public partial class EditorView : UserControl
             return;
         }
         var c = CurrentContainer(forOverwrite: false);
+        var request = BuildRequest("", c);
+        bool copy = request.VideoMode == VideoMode.Copy;
         var parts = new List<string> { $"Clip: {Fmt.Time(_timeline.Out - _timeline.In)}" };
+        string size = "";
         if ((c.HasVideo || c.IsGif) && _media.Video != null)
         {
             var crop = _crop.ExportRect();
             int w = crop?.W ?? _media.Video.Width, h = crop?.H ?? _media.Video.Height;
-            int maxShort = (ResolutionCombo.SelectedItem as Choice)?.Value is int r ? r : 0;
+            int maxShort = request.MaxShortSide;
             if (c.IsGif && maxShort == 0) maxShort = 480;
-            bool copy = (VideoModeCombo.SelectedItem as Choice)?.Value as string == "copy" && !c.IsGif;
             if (!copy && maxShort > 0 && Math.Min(w, h) > maxShort)
             {
                 double s = maxShort / (double)Math.Min(w, h);
                 (w, h) = ((int)Math.Round(w * s / 2) * 2, (int)Math.Round(h * s / 2) * 2);
             }
-            parts.Add($"{w}×{h}" + (crop != null ? " (cropped)" : ""));
+            size = $"{w}×{h}";
+            parts.Add(size + (crop != null ? " (cropped)" : ""));
             if (copy) parts.Add("video copied");
             else if ((FpsCombo.SelectedItem as Choice)?.Value is SmoothFps) parts.Add("smooth 60 fps");
         }
         int audio = c.IsGif ? 0 : _tracks.Count(t => t.Include);
         int sounds = c.IsGif ? 0 : _tracks.Count(t => t.Include && t.IsSound);
         string withSounds = sounds switch { 0 => "", 1 => " (1 added sound)", _ => $" ({sounds} added sounds)" };
-        if (audio == 0) parts.Add("no audio");
-        else if (audio == 1) parts.Add("1 audio track" + withSounds);
-        else if (MergeCheck.IsChecked == true || c.SingleAudioTrack) parts.Add($"{audio} audio tracks{withSounds} merged into 1");
-        else parts.Add($"{audio} audio tracks{withSounds}");
+        string tracks = audio switch
+        {
+            0 => "no audio",
+            1 => "1 audio track" + withSounds,
+            _ when MergeCheck.IsChecked == true || c.SingleAudioTrack => $"{audio} audio tracks{withSounds} merged into 1",
+            _ => $"{audio} audio tracks{withSounds}",
+        };
+        parts.Add(tracks);
         SummaryText.Text = string.Join("  ·  ", parts);
+        UpdateOptionHeadings(c, request, size, tracks);
+    }
+
+    /// <summary>What each group of options is set to, under its heading, so it can be seen while it's closed.</summary>
+    private void UpdateOptionHeadings(Container c, ExportRequest request, string size, string tracks)
+    {
+        var v = _media?.Video;
+        var crop = _crop.ExportRect();
+        string aspect = AspectCombo.SelectedItem is Choice { Value: not "free" } a ? " · " + a.Label.Split(' ')[0] : "";
+        CropHeaderText.Text = crop is { } r ? $"{r.W}×{r.H}{aspect}" : "Off";
+
+        var fps = FpsCombo.SelectedItem as Choice;
+        FpsHeaderText.Text = fps == null || fps.Value is 0.0
+            ? v is { Fps: > 0 } ? $"Original ({v.Fps:0.##} fps)" : "Original"
+            : fps.Label;
+
+        string quality = request.Quality switch
+        {
+            "original" => "same quality as the original",
+            "size" => $"aiming for {request.TargetSizeMB:0.#} MB",
+            _ => ((QualityCombo.SelectedItem as Choice)?.Label ?? "").Split(' ')[0].ToLowerInvariant() + " quality",
+        };
+        bool videoOut = v != null && (c.HasVideo || c.IsGif);
+        string encoder = VideoEncoders.Find(request.EncoderId)?.Label ?? "the format's own encoder";
+        if (!videoOut || c.IsGif)
+        {
+            EncodingHeaderText.Text = $"Audio at {request.AudioBitrateK} kbps when it's changed";
+            EncodingHint.Text = "";
+        }
+        else if (request.VideoMode == VideoMode.Copy)
+        {
+            EncodingHeaderText.Text = "Video copied as it is";
+            EncodingHint.Text = "The video is copied as it is: quick, with nothing lost. Anything that needs it re-encoded " +
+                                "(a crop, a new size, frame rate, encoder or quality, or trimming the start between keyframes) does that by itself.";
+        }
+        else
+        {
+            EncodingHeaderText.Text = $"Re-encoded: {encoder}, {quality}";
+            EncodingHint.Text = $"The video is re-encoded because {ExportBuilder.ReencodeReason(request, EncoderCombo.SelectedItem is Choice { Value: string { Length: > 0 } }, _keyframes)}.";
+        }
+        EncodingHint.Visibility = EncodingHint.Text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+
+        string resolution = !videoOut ? "" : request.MaxShortSide > 0 && v != null && Math.Min(v.Width, v.Height) > request.MaxShortSide
+            ? $" · {size}" : " · original size";
+        OutputHeaderText.Text = $"{c.Extension.TrimStart('.').ToUpperInvariant()}{resolution} · {tracks}";
     }
 
     // ------------------------------------------------------------------------------------------
@@ -1247,10 +1341,9 @@ public partial class EditorView : UserControl
     private ExportRequest BuildRequest(string outputPath, Container container)
     {
         double.TryParse(TargetSizeBox.Text, NumberStyles.Float, CultureInfo.CurrentCulture, out var mb);
-        // Size and frame rate are re-encode settings (hidden while copying the video, so not applied then either).
-        bool copy = (VideoModeCombo.SelectedItem as Choice)?.Value as string == "copy" && !container.IsGif;
-        double fps = copy ? 0 : (FpsCombo.SelectedItem as Choice)?.Value is double f ? f : 0;
-        return new ExportRequest
+        double fps = (FpsCombo.SelectedItem as Choice)?.Value is double f ? f : 0;
+        string chosenEncoder = (EncoderCombo.SelectedItem as Choice)?.Value as string ?? "";
+        var request = new ExportRequest
         {
             Media = _media!,
             OutputPath = outputPath,
@@ -1266,15 +1359,26 @@ public partial class EditorView : UserControl
                 })
                 .ToList(),
             MergeAudio = MergeCheck.IsChecked == true,
-            VideoMode = (VideoModeCombo.SelectedItem as Choice)?.Value as string == "copy" ? VideoMode.Copy : VideoMode.Encode,
-            EncoderId = (EncoderCombo.SelectedItem as Choice)?.Value as string ?? "libx264",
-            Quality = (QualityCombo.SelectedItem as Choice)?.Value as string ?? "high",
+            VideoMode = VideoMode.Encode,
+            EncoderId = chosenEncoder,
+            Quality = (QualityCombo.SelectedItem as Choice)?.Value as string ?? "original",
             TargetSizeMB = mb > 0 ? mb : 25,
-            MaxShortSide = !copy && (ResolutionCombo.SelectedItem as Choice)?.Value is int r ? r : 0,
+            MaxShortSide = (ResolutionCombo.SelectedItem as Choice)?.Value is int r ? r : 0,
             Fps = Math.Abs(fps),
             MotionBlur = fps == SmoothFps,
             AudioBitrateK = (AudioBitrateCombo.SelectedItem as Choice)?.Value is int b ? b : 192,
         };
+
+        // Copied as it is whenever that gives what's asked for; re-encoded (to the original's codec unless another
+        // encoder was picked) when something needs it.
+        bool videoOut = _media!.Video != null && (container.HasVideo || container.IsGif);
+        if (videoOut && ExportBuilder.ReencodeReason(request, chosenEncoder.Length > 0, _keyframes) == null)
+        {
+            // A copy begins exactly on the keyframe the start was matched to.
+            double start = _keyframes != null && ExportBuilder.KeyframeAt(_keyframes, request.Start, _media.Video!.Fps) is { } k ? k : request.Start;
+            return request with { VideoMode = VideoMode.Copy, Start = start };
+        }
+        return request with { EncoderId = chosenEncoder.Length > 0 ? chosenEncoder : SameCodecEncoder(container) };
     }
 
     private async void ExportNew_Click(object sender, RoutedEventArgs e)
@@ -1551,7 +1655,11 @@ public partial class EditorView : UserControl
     internal void PlayForRender() => TogglePlay();
     internal void SeekForRender(double t) => Seek(t);
     internal bool CanUndo => _undo != null;
-    internal void ExpandOptionsForRender() => OptionsExpander.IsExpanded = true;
+    internal void SelectQualityForRender(string quality) => Select(QualityCombo, quality);
+    internal void ExpandOptionsForRender()
+    {
+        foreach (var group in new[] { CropExpander, FpsExpander, EncodingExpander, OutputExpander }) group.IsExpanded = true;
+    }
     internal string FpsChoicesForRender => string.Join(", ", FpsCombo.Items.OfType<Choice>().Select(c => c.Label));
     internal string StatusForRender => StatusText.Text;
     internal Task UndoForRender() => UndoAsync();

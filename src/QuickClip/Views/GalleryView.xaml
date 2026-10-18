@@ -17,7 +17,7 @@
                     <Border.ContextMenu>
                         <ContextMenu Opened="ClipMenu_Opened">
                             <MenuItem Header="Play" Click="PlayClip_Click" FontWeight="SemiBold" />
-                            <MenuItem Header="Share (copy to clipboard)" Click="ShareClip_Click" ToolTip="Share: makes a copy under 30 MB (at most 60 fps, all audio mixed into one track) and copies it to the clipboard to paste anywhere. The original stays as it is." />
+                            <MenuItem Header="Share (copy to clipboard)" Click="ShareClip_Click" ToolTip="Share: makes a copy under the size limit in Settings (at most 60 fps, all audio mixed into one track) and copies it to the clipboard to paste anywhere. The original stays as it is." />
                             <MenuItem Header="Open in editor" Click="OpenClip_Click" />
                             <Separator />
                             <!-- Filled in when the menu opens: every project, then New project -->
@@ -52,7 +52,7 @@
                             </Border>
                             <Button x:Name="ShareBadge" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="6" Padding="8,6"
                                     Style="{StaticResource IconButton}" Content="&#xE72D;" FontSize="13" Background="#B0000000" Foreground="White"
-                                    Visibility="Collapsed" Cursor="Arrow" Click="ShareClip_Click" ToolTip="Share: makes a copy under 30 MB (at most 60 fps, all audio mixed into one track) and copies it to the clipboard to paste anywhere. The original stays as it is." />
+                                    Visibility="Collapsed" Cursor="Arrow" Click="ShareClip_Click" ToolTip="Share: makes a copy under the size limit in Settings (at most 60 fps, all audio mixed into one track) and copies it to the clipboard to paste anywhere. The original stays as it is." />
                             <!-- Ticks the clip for "Add to project" / "Copy to folder" -->
                             <Border x:Name="PickBox" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="6" Padding="6,2,0,2" CornerRadius="5"
                                     Background="#A0000000" Visibility="Collapsed">

@@ -94,7 +94,8 @@ public partial class App : Application
         string? file = args.FirstOrDefault(a => !a.StartsWith("--", StringComparison.Ordinal));
 #if DEBUG
         // Test runs: point clips at a scratch folder without touching the saved settings.
-        if (args.FirstOrDefault(a => a.StartsWith("--clips=", StringComparison.Ordinal)) is { } clipsArg)
+        string? clipsArg = args.FirstOrDefault(a => a.StartsWith("--clips=", StringComparison.Ordinal));
+        if (clipsArg != null)
         {
             AppSettings.SaveDisabled = true;
             AppSettings.Current.ClipsFolder = clipsArg["--clips=".Length..];
@@ -102,6 +103,12 @@ public partial class App : Application
         if (args.FirstOrDefault(a => a.StartsWith("--render=", StringComparison.Ordinal)) is { } render)
         {
             AppSettings.SaveDisabled = true;
+            // Renders make projects and exports, and show the gallery: never in the real clips folder.
+            if (clipsArg == null)
+            {
+                AppSettings.Current.ClipsFolder = Path.Combine(render["--render=".Length..], "clips");
+                Directory.CreateDirectory(AppSettings.Current.ClipsFolder);
+            }
             ShowMain();
 
             var window = _main!;

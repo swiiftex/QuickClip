@@ -9,7 +9,7 @@
     <PlatformTarget>x64</PlatformTarget>
     <ApplicationIcon>Assets\QuickClip.ico</ApplicationIcon>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
-    <Version>0.7.0-nightly.2</Version>
+    <Version>0.7.0-nightly.3</Version>
     <Product>QuickClip</Product>
     <!-- Fluent theme (ThemeMode) is still flagged as experimental. -->
     <NoWarn>$(NoWarn);WPF0001</NoWarn>

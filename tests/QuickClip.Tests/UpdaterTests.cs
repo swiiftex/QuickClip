@@ -46,7 +46,12 @@ public sealed class UpdaterTests
     [Fact]
     public void Current_version_comes_from_the_project()
     {
-        Assert.Equal(V("0.7.0-nightly.1"), AppVersion.Current);
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir != null && !File.Exists(Path.Combine(dir.FullName, "src", "QuickClip", "QuickClip.csproj"))) dir = dir.Parent;
+        Assert.NotNull(dir);
+        string project = File.ReadAllText(Path.Combine(dir.FullName, "src", "QuickClip", "QuickClip.csproj"));
+        string version = System.Text.RegularExpressions.Regex.Match(project, "<Version>([^<]+)</Version>").Groups[1].Value;
+        Assert.Equal(V(version), AppVersion.Current);
     }
 
     private const string Releases = """

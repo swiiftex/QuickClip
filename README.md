@@ -32,10 +32,11 @@ and lets you trim, crop and remix the audio tracks before sharing.
   ago each clip was made.
 - Click a clip to watch it in the **player**, with every audio track playing, full screen, the previous or next clip
   of the folder, and buttons to share, edit, show or delete it.
-- **Share** (the share button on a clip, its right-click menu, or **S** in the player) makes a copy that's under 30 MB,
+- **Share** (the share button on a clip, its right-click menu, or **S** in the player) makes a copy that's under a size limit,
   at most 60 fps and H.264 with every audio track mixed into one, then copies it to the clipboard: paste it into
   Discord or anywhere with Ctrl+V. A clip that's already small enough H.264 only has its audio mixed; a bigger one is
-  compressed to fit, at a smaller size when 30 MB is too little for its resolution. The original stays as it is; the
+  compressed to fit, at a smaller size when the limit is too little for its resolution. The limit is 30 MB to start;
+  set it under **Settings → Sharing** (10 MB fits Discord without Nitro). The original stays as it is; the
   copies go in `Videos\QuickClip Shared` and are cleared out after two days. The status bar shows the
   progress. Clips over 60 fps (like 120 fps recordings) have their extra frames blended into motion blur rather than
   dropped, so the 60 fps copy looks smoother (**Settings → Sharing**; on by default).
@@ -49,8 +50,11 @@ and lets you trim, crop and remix the audio tracks before sharing.
 - **Copy to folder…** copies the ticked clips anywhere.
 - The **editor** previews video with every audio track playing at once, each at its own volume (0–200%), shows a
   waveform per track, trims frame-accurately, crops with aspect presets, and exports as a new file or over the
-  original. Its crop and export settings sit under **Options**, closed until you open it (or press C to crop).
-  Tracks can be kept separate or merged into one (**Merge all audio tracks into one** under Export, which
+  original. Its settings are in four groups, each closed until you open it and showing what it's set to: **Crop**
+  (C opens it), **Frame rate**, **Encoding** and **Output**. Everything starts at "same as original", and then the
+  video is copied as it is: quick, with nothing lost. Anything that needs it re-encoded (a crop, a new size, frame
+  rate, encoder or quality, or a start trimmed between keyframes) switches to that by itself, and **Encoding** says
+  why. Tracks can be kept separate or merged into one (**Merge all audio tracks into one** under Output, which
   asks first, and warns before saving over the original that way). After **Save over original**, **Undo** (Ctrl+Z)
   puts the clip back as it was, from the Recycle Bin, and sends the edited version there instead. The preview volume
   slider is QuickClip's own level in the Windows volume mixer.

@@ -1,9 +1,9 @@
 namespace QuickClip.Media;
 
 /// <summary>
-/// A copy of a clip made to be posted anywhere: under 30 MB, at most 60 fps, H.264 (which everything plays) and every
-/// audio track mixed into one. A higher frame rate can be blended into motion blur rather than dropped
-/// (<see cref="MotionBlur"/>). The original is left alone.
+/// A copy of a clip made to be posted anywhere: under a size limit (30 MB unless set otherwise), at most 60 fps,
+/// H.264 (which everything plays) and every audio track mixed into one. A higher frame rate can be blended into
+/// motion blur rather than dropped (<see cref="MotionBlur"/>). The original is left alone.
 /// </summary>
 internal static class ShareCopy
 {

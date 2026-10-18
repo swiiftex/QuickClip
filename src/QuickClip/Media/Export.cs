@@ -22,7 +22,7 @@ internal sealed record ExportRequest
     public bool MergeAudio { get; init; }
     public VideoMode VideoMode { get; init; }
     public string EncoderId { get; init; } = "libx264";
-    public string Quality { get; init; } = "high";      // best | high | good | small | size
+    public string Quality { get; init; } = "high";      // original | best | high | good | small | size
     public double TargetSizeMB { get; init; } = 25;
     public int MaxShortSide { get; init; }               // 0 = original
     public double Fps { get; init; }                     // 0 = original
@@ -52,7 +52,9 @@ internal static class ExportBuilder
         var media = r.Media;
 
         var args = new List<string> { "-hide_banner", "-nostdin", "-y", "-v", "error", "-nostats", "-progress", "pipe:1" };
-        if (r.Start > 0.0005) args.AddRange(["-ss", F(r.Start)]);
+        // A copy starts on the keyframe at or before the seek point: aim a hair past the one asked for, so rounding
+        // can't land just before it and take the one a second earlier.
+        if (r.Start > 0.0005) args.AddRange(["-ss", F(r.VideoMode == VideoMode.Copy ? r.Start + 0.001 : r.Start)]);
         args.AddRange(["-t", F(r.Duration), "-i", media.Path]);
 
         var graph = new List<string>();
@@ -66,10 +68,10 @@ internal static class ExportBuilder
             var v = media.Video!;
             if (r.VideoMode == VideoMode.Copy && !c.IsGif)
             {
-                if (r.Crop != null) throw new ExportException("Stream copy can't crop. Switch Video to \"Re-encode\" to crop.");
-                if (r.MaxShortSide > 0 || r.Fps > 0) throw new ExportException("Stream copy can't change resolution or frame rate. Switch Video to \"Re-encode\".");
+                if (r.Crop != null || r.MaxShortSide > 0 || r.Fps > 0)
+                    throw new ExportException("Copying the video can't crop it or change its size or frame rate.");
                 if (!c.CanCopyVideo(v.Codec))
-                    throw new ExportException($"{v.Codec.ToUpperInvariant()} video can't be stream-copied into {c.Extension}. Switch Video to \"Re-encode\" or pick another format.");
+                    throw new ExportException($"{CodecName(v.Codec)} video can't be copied into {c.Extension} as it is.");
                 outArgs.AddRange(["-map", $"0:{v.Index}", "-c:v", "copy"]);
             }
             else
@@ -151,6 +153,9 @@ internal static class ExportBuilder
         foreach (var sound in soundInputs) args.AddRange(["-i", sound]);
         if (graph.Count > 0) args.AddRange(["-filter_complex", string.Join(";", graph)]);
         args.AddRange(outArgs);
+        // Copied audio would start where the seek landed, on the keyframe up to a second before the in point, with
+        // an edit list to hide the extra; Windows' player and Discord ignore that and play the sound that much late.
+        if (r.Start > 0.0005) args.AddRange(["-copypriorss:a", "0"]);
         args.AddRange(["-map_metadata", "0", "-map_chapters", "-1"]);
         if (r.VideoMode == VideoMode.Copy) args.AddRange(["-avoid_negative_ts", "make_zero"]);
         if (c.FastStart) args.AddRange(["-movflags", "+faststart"]);
@@ -181,7 +186,8 @@ internal static class ExportBuilder
         bool blur = lowerFps && r.MotionBlur && !c.IsGif && v.IsBt709 && MotionBlur.Helps(v.Fps, fps);
         if (lowerFps && !blur)
             chain.Add($"fps={F(fps)}");
-        if (maxShort > 0 && Math.Min(w, h) > maxShort)
+        bool scaled = maxShort > 0 && Math.Min(w, h) > maxShort;
+        if (scaled)
             chain.Add(w >= h ? $"scale=-2:{maxShort}:flags=lanczos" : $"scale={maxShort}:-2:flags=lanczos");
         // After scaling: blending in linear light is the costly part, so it works on as few pixels as possible.
         if (blur)
@@ -215,13 +221,75 @@ internal static class ExportBuilder
         }
 
         AddEncoder(outArgs, enc, r.Quality, appleTag: c.Key is "mp4" or "mov" or "m4v");
+        if (r.Quality == "original")
+        {
+            if (scaled) (w, h) = w >= h ? (w * maxShort / h, maxShort) : (maxShort, h * maxShort / w);
+            double outFps = lowerFps ? fps : v.Fps > 0 ? v.Fps : 30;
+            AddOriginalBitrate(outArgs, enc, v, (double)w * h * outFps);
+        }
     }
 
-    /// <summary>Encoder and rate-control arguments for a quality setting ("size" leaves the bitrate to the caller).</summary>
+    /// <summary>
+    /// "Same as original" quality when the video has to be re-encoded: about the original's bitrate for the picture
+    /// that's left (after cropping, resizing and a lower frame rate), allowing for what each codec gets from a bit.
+    /// </summary>
+    private static void AddOriginalBitrate(List<string> outArgs, VideoEncoder enc, VideoStreamInfo v, double outPixelRate)
+    {
+        double srcPixelRate = (double)v.Width * v.Height * (v.Fps > 0 ? v.Fps : 30);
+        double bps = v.BitRate > 0 ? v.BitRate : srcPixelRate * 0.1; // unknown: a high-quality H.264 rate
+        // Fewer pixels need fewer bits, though not in proportion: each one carries more of the detail.
+        bps *= Math.Pow(Math.Min(1, outPixelRate / srcPixelRate), 0.8) * Efficiency(v.Codec) / Efficiency(enc.Family);
+        long kbps = Math.Clamp((long)(bps / 1000), 500, 500_000);
+        outArgs.AddRange(["-b:v", $"{kbps}k"]);
+        if (enc.Id != "libsvtav1") // SVT-AV1 rejects a VBV cap in VBR mode
+            outArgs.AddRange(["-maxrate", $"{kbps * 3 / 2}k", "-bufsize", $"{kbps * 2}k"]);
+    }
+
+    /// <summary>Bits a codec needs for the same picture, relative to H.264.</summary>
+    private static double Efficiency(string codec) => codec switch { "av1" => 0.6, "hevc" or "vp9" => 0.7, _ => 1.0 };
+
+    public static string CodecName(string codec) => codec switch
+    {
+        "h264" => "H.264", "hevc" => "HEVC", "av1" => "AV1", "vp9" => "VP9", "vp8" => "VP8", "prores" => "ProRes",
+        _ => codec.ToUpperInvariant(),
+    };
+
+    /// <summary>
+    /// Why the video has to be re-encoded rather than copied as it is, or null when a copy gives what's asked for.
+    /// <paramref name="encoderChosen"/>: an encoder was picked rather than keeping the original's codec.
+    /// <paramref name="keyframes"/>: when the video's keyframes are (null while unknown), as a copy starts on one.
+    /// </summary>
+    public static string? ReencodeReason(ExportRequest r, bool encoderChosen, IReadOnlyList<double>? keyframes)
+    {
+        var v = r.Media.Video;
+        var c = r.Container;
+        if (v == null || !(c.HasVideo || c.IsGif)) return null;
+        if (c.IsGif) return "it's made into a GIF";
+        if (r.Crop != null) return "the video is cropped";
+        if (r.MaxShortSide > 0 && Math.Min(v.Width, v.Height) > r.MaxShortSide) return "the resolution changes";
+        if (r.Fps > 0 && (v.Fps <= 0 || r.Fps < v.Fps - 0.01)) return "the frame rate changes";
+        if (r.Quality != "original") return "a quality is chosen";
+        if (encoderChosen) return "an encoder is chosen";
+        if (!c.CanCopyVideo(v.Codec)) return $"{c.Extension.TrimStart('.').ToUpperInvariant()} can't hold {CodecName(v.Codec)} video as it is";
+        if (r.Start > 0.0005 && (keyframes == null || KeyframeAt(keyframes, r.Start, v.Fps) == null))
+            return "the clip starts between keyframes, and a copy would have to start on one";
+        return null;
+    }
+
+    /// <summary>The keyframe within half a frame of <paramref name="time"/>, if there is one.</summary>
+    public static double? KeyframeAt(IReadOnlyList<double> keyframes, double time, double fps)
+    {
+        double tolerance = 0.5 / (fps > 0 ? fps : 30);
+        foreach (double k in keyframes)
+            if (Math.Abs(k - time) <= tolerance) return k;
+        return null;
+    }
+
+    /// <summary>Encoder and rate-control arguments for a quality setting ("size" and "original" leave the bitrate to the caller).</summary>
     public static void AddEncoder(List<string> outArgs, VideoEncoder enc, string quality, bool appleTag)
     {
         int q = quality switch { "best" => 16, "good" => 24, "small" => 28, _ => 20 };
-        bool size = quality == "size";
+        bool size = quality is "size" or "original"; // the caller sets the bitrate
         outArgs.AddRange(["-c:v", enc.Id]);
         switch (enc.Id)
         {

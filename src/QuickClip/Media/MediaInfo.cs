@@ -15,6 +15,8 @@ internal sealed class VideoStreamInfo
     public string? ColorSpace { get; init; }
     public string? ColorTransfer { get; init; }
     public string? ColorRange { get; init; }
+    /// <summary>Bits per second, or (when the file doesn't say) the file's rate less its audio.</summary>
+    public long BitRate { get; set; }
 
     /// <summary>Ordinary (BT.709, or untagged as most SDR video is) rather than HDR or old SD colors.</summary>
     public bool IsBt709 => (ColorSpace is null or "bt709" or "unknown") && (ColorTransfer is null or "bt709" or "unknown");
@@ -53,6 +55,8 @@ internal sealed class MediaInfo
     public double Duration { get; set; }
     public string FormatName { get; init; } = "";
     public long Size { get; init; }
+    /// <summary>The first timestamp in the file; seeking and the timeline count from here.</summary>
+    public double StartTime { get; init; }
     public VideoStreamInfo? Video { get; init; }
     public List<AudioStreamInfo> Audio { get; } = [];
 
@@ -124,6 +128,7 @@ internal sealed class MediaInfo
                         ColorSpace = Str(s, "color_space"),
                         ColorTransfer = Str(s, "color_transfer"),
                         ColorRange = Str(s, "color_range"),
+                        BitRate = (long)Dbl(s, "bit_rate"),
                     };
                 }
                 else if (type == "audio")
@@ -155,18 +160,46 @@ internal sealed class MediaInfo
         double duration = format.ValueKind == JsonValueKind.Object ? Dbl(format, "duration") : 0;
         if (duration <= 0) duration = streamDuration;
 
+        bool hasFormat = format.ValueKind == JsonValueKind.Object;
+        // Matroska doesn't store a bitrate per stream.
+        if (video is { BitRate: 0 } && hasFormat && Dbl(format, "bit_rate") is > 0 and var total)
+            video.BitRate = Math.Max(0, (long)total - audio.Sum(a => a.BitRate > 0 ? a.BitRate : 160_000));
+
         var info = new MediaInfo
         {
             Path = path,
             Duration = duration,
-            FormatName = format.ValueKind == JsonValueKind.Object ? Str(format, "format_name") ?? "" : "",
+            FormatName = hasFormat ? Str(format, "format_name") ?? "" : "",
             Size = new FileInfo(path).Length,
+            StartTime = hasFormat ? Dbl(format, "start_time") : 0,
             Video = video,
         };
         info.Audio.AddRange(audio);
         if (info.Video == null && info.Audio.Count == 0)
             throw new InvalidOperationException("This file has no video or audio streams.");
         return info;
+    }
+
+    /// <summary>When the video's keyframes are, from the start of the file, in order: a copy can only start on one.</summary>
+    public static async Task<List<double>> KeyframesAsync(MediaInfo media, CancellationToken ct = default)
+    {
+        if (Deps.FFprobe == null || media.Video == null) return [];
+        var (code, stdout, stderr) = await Proc.RunAsync(Deps.FFprobe,
+        [
+            "-v", "error", "-select_streams", media.Video.Index.ToString(CultureInfo.InvariantCulture),
+            "-show_entries", "packet=pts_time,flags", "-of", "csv=p=0", media.Path,
+        ], ct);
+        if (code != 0) throw new InvalidOperationException(string.IsNullOrWhiteSpace(stderr) ? "ffprobe could not list the keyframes." : stderr.Trim());
+        var times = new List<double>();
+        foreach (var line in stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var parts = line.Split(',');
+            if (parts.Length >= 2 && parts[1].Contains('K')
+                && double.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out var t))
+                times.Add(t - media.StartTime);
+        }
+        times.Sort();
+        return times;
     }
 
     private static bool IsAttachedPicture(JsonElement s) =>

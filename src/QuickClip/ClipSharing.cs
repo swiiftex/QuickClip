@@ -50,7 +50,8 @@ internal static class ClipSharing
 
             var progress = new Progress<(int Attempt, double Progress)>(p => Report(new ShareStatus(ShareStage.Working, name, p.Progress,
                 $"{(p.Attempt == 1 ? "Sharing" : "Compressing a little more")}  ·  {p.Progress:P0}")));
-            long size = await ShareCopy.CreateAsync(info, output, encoder, progress, cts.Token, motionBlur: AppSettings.Current.ShareMotionBlur);
+            long size = await ShareCopy.CreateAsync(info, output, encoder, progress, cts.Token,
+                limitMB: Math.Clamp(AppSettings.Current.ShareSizeMB, 1, 4000), motionBlur: AppSettings.Current.ShareMotionBlur);
 
             await CopyToClipboardAsync(output);
             Log.Write($"Shared {clip} as {output} ({Fmt.Size(size)}), copied to the clipboard");

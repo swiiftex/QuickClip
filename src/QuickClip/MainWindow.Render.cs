@@ -109,6 +109,10 @@ public partial class MainWindow
             _editor?.ExpandOptionsForRender();
             await Task.Delay(500);
             SaveVisual(Path.Combine(dir, "editor-options.png"));
+            _editor?.SelectQualityForRender("high");
+            await Task.Delay(500);
+            SaveVisual(Path.Combine(dir, "editor-options-reencode.png"));
+            _editor?.SelectQualityForRender("original");
 
             // Save over the clip (trimmed), then undo that.
             if (_editor != null && Path.GetFileName(editorFile).StartsWith("undo-test", StringComparison.OrdinalIgnoreCase))

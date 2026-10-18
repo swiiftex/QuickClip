@@ -108,6 +108,71 @@ public sealed class ExportTests(MediaFixture media)
     }
 
     [Fact]
+    public async Task Copied_audio_starts_at_the_in_point_not_the_keyframe_before_it()
+    {
+        // Players that ignore MP4 edit lists (Windows' player, Discord) would play audio from before the in point, that
+        // much late. The source has a keyframe every second, so 1.5 s is half a second past one.
+        var (_, outInfo) = await Export("copied-audio.mp4", Containers.Mp4, s => [Track(s.Audio[0], 1)], start: 1.5, end: 4);
+        Assert.Equal(0.0, await FirstPacketTime(outInfo.Path, "a:0"), 0.03);
+    }
+
+    [Fact]
+    public async Task Keyframes_are_listed_from_the_start_of_the_file()
+    {
+        var keys = await MediaInfo.KeyframesAsync(await MediaInfo.ProbeAsync(media.TwoTracks));
+        Assert.Equal([0.0, 1, 2, 3, 4, 5], keys.Select(k => Math.Round(k, 2)));
+    }
+
+    [Fact]
+    public async Task Video_is_copied_unless_something_needs_it_re_encoded()
+    {
+        var src = await MediaInfo.ProbeAsync(media.TwoTracks);
+        var keys = await MediaInfo.KeyframesAsync(src);
+        var r = new ExportRequest
+        {
+            Media = src, OutputPath = media.Out("x.mp4"), Container = Containers.Mp4, Start = 0, End = 4, Tracks = [], Quality = "original",
+        };
+        Assert.Null(ExportBuilder.ReencodeReason(r, false, keys));
+        Assert.Null(ExportBuilder.ReencodeReason(r with { Start = 2 }, false, keys));            // on a keyframe
+        Assert.Null(ExportBuilder.ReencodeReason(r with { Container = Containers.Mkv }, false, keys));
+        Assert.Null(ExportBuilder.ReencodeReason(r with { MaxShortSide = 1080, Fps = 60 }, false, keys)); // no smaller or slower
+        Assert.Contains("keyframe", ExportBuilder.ReencodeReason(r with { Start = 2.5 }, false, keys));
+        Assert.Contains("keyframe", ExportBuilder.ReencodeReason(r with { Start = 2 }, false, null)); // not known yet
+        Assert.Contains("cropped", ExportBuilder.ReencodeReason(r with { Crop = (0, 0, 320, 180) }, false, keys));
+        Assert.Contains("resolution", ExportBuilder.ReencodeReason(r with { MaxShortSide = 240 }, false, keys));
+        Assert.Contains("frame rate", ExportBuilder.ReencodeReason(r with { Fps = 15 }, false, keys));
+        Assert.Contains("quality", ExportBuilder.ReencodeReason(r with { Quality = "high" }, false, keys));
+        Assert.Contains("encoder", ExportBuilder.ReencodeReason(r, true, keys));
+        Assert.Contains("WEBM", ExportBuilder.ReencodeReason(r with { Container = Containers.WebM }, false, keys));
+    }
+
+    [Fact]
+    public async Task A_copy_from_a_keyframe_starts_exactly_there()
+    {
+        var (_, outInfo) = await Export("copy-key.mp4", Containers.Mp4, s => [Track(s.Audio[0], 1)],
+            r => r with { VideoMode = VideoMode.Copy }, start: 2, end: 4);
+        Assert.Equal(2, outInfo.Duration, 0.05);
+        Assert.Equal(0.0, await FirstPacketTime(outInfo.Path, "v:0"), 0.01);
+        Assert.Equal(0.0, await FirstPacketTime(outInfo.Path, "a:0"), 0.03);
+    }
+
+    [Fact]
+    public async Task Same_as_original_quality_keeps_about_the_original_bitrate()
+    {
+        var (src, outInfo) = await Export("original-quality.mp4", Containers.Mp4, s => [Track(s.Audio[0], 1)],
+            r => r with { Quality = "original" }, start: 0, end: 6);
+        double target = Math.Max(src.Video!.BitRate, 500_000);
+        Assert.InRange(outInfo.Video!.BitRate, target * 0.6, target * 1.4);
+    }
+
+    private static async Task<double> FirstPacketTime(string path, string stream)
+    {
+        var (_, packets, _) = await Proc.RunAsync(Deps.FFprobe!,
+            ["-v", "error", "-select_streams", stream, "-show_entries", "packet=pts_time", "-of", "csv=p=0", "-read_intervals", "%+#1", path]);
+        return double.Parse(packets.Trim().Split('\n')[0].Trim().TrimEnd(','), System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    [Fact]
     public async Task Stream_copy_refuses_to_crop()
     {
         var src = await MediaInfo.ProbeAsync(media.TwoTracks);
