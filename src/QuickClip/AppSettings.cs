@@ -27,7 +27,7 @@ internal sealed class AppSettings
     public string RecordEncoder { get; set; } = "";             // empty = newest GPU codec available
     public int BufferSeconds { get; set; } = 60;
     public bool CaptureCursor { get; set; } = true;
-    public bool PreferGameWindow { get; set; }                   // record a running game by its window (no crop)
+    public bool PreferGameWindow { get; set; }                   // record a running game by its window (the aspect ratio is then for the desktop)
     public bool SplitChatAudio { get; set; } = true;
     public bool SplitMusicAudio { get; set; } = true;
     public bool RecordMic { get; set; } = true;

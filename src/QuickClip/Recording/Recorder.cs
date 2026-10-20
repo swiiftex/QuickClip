@@ -101,12 +101,12 @@ internal sealed class Recorder
                 : RecordingPresets.DefaultEncoder(available)?.Id;
             if (encoder == null)
             {
-                Error = "No graphics card video encoder was found (NVIDIA, AMD or Intel).";
+                Error = "No graphics card video encoder works on this PC (NVIDIA, AMD or Intel). Updating the graphics driver may help.";
                 return;
             }
 
-            // Recording a game's window takes the window as it is: no crop.
-            string aspect = s.PreferGameWindow ? "" : s.RecordAspect;
+            // The aspect ratio is for the monitor: a game recorded by its window is taken as it is.
+            string aspect = s.RecordAspect;
             var area = RecordingPresets.Area(monitor.Width, monitor.Height, aspect);
             bool cropped = aspect != "" && (area.Width != monitor.Width || area.Height != monitor.Height);
             var (w, h) = RecordingPresets.OutputSize(area.Width, area.Height, s.RecordResolution);

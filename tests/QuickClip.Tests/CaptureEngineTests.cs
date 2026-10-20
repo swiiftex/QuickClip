@@ -91,6 +91,44 @@ public sealed class CaptureEngineTests(MediaFixture media)
     }
 
     /// <summary>
+    /// The graphics card's encoder through Windows, used when the card's own route can't be: FFmpeg's NVENC needs NVIDIA
+    /// driver 610, which GTX 900 and 10 series cards never get. Runs for each one this PC's card offers.
+    /// </summary>
+    [Theory]
+    [InlineData("h264_mf")]
+    [InlineData("hevc_mf")]
+    [InlineData("av1_mf")]
+    public async Task Records_through_the_graphics_cards_encoder_in_Windows(string encoderId)
+    {
+        if (!CaptureEngine.IsAvailable) return;
+        CaptureEngine.Initialize();
+        var monitor = Monitors.List().FirstOrDefault(m => m.IsPrimary);
+        if (monitor == null || !(await VideoEncoders.GetAvailableAsync()).Contains(encoderId)) return;
+
+        var encoder = VideoEncoders.Find(encoderId)!;
+        var area = RecordingPresets.Area(monitor.Width, monitor.Height, "16:9");
+        Assert.Null(CaptureEngine.Start(monitor.DeviceName, "16:9", 30, 0, 0, encoderId,
+            RecordingPresets.VideoKbps(RecordingQuality.Low, area.Width, area.Height, 30, encoder.Family), RecordingPresets.AudioKbps,
+            bufferSeconds: 10, cursor: true, splitChat: false, splitMusic: false, mics: [], separateMics: false));
+        string clip = media.Out($"engine-{encoderId}.mp4");
+        try
+        {
+            await Task.Delay(4000);
+            Assert.Null(await Task.Run(() => CaptureEngine.Save(clip, 2, "Test")));
+        }
+        finally
+        {
+            CaptureEngine.Stop();
+        }
+
+        var info = await MediaInfo.ProbeAsync(clip);
+        Assert.Equal(encoder.Family, info.Video!.Codec);
+        Assert.Equal((area.Width, area.Height), (info.Video.Width, info.Video.Height));
+        Assert.InRange(info.Duration, 1.9, 3.2); // starts on the keyframe before the 2 s mark
+        File.Delete(clip);
+    }
+
+    /// <summary>
     /// Above 60 fps the engine records through Windows Graphics Capture: Desktop Duplication tops out around 75 fps of
     /// 120 on some PCs. A tiny window flickering on every screen refresh keeps the picture changing, as a game would.
     /// </summary>

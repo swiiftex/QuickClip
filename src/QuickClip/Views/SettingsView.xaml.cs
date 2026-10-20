@@ -264,13 +264,12 @@ public partial class SettingsView : UserControl
         _loading = was;
     }
 
-    /// <summary>The crop doesn't apply to a game's window: greyed out while recording that is preferred.</summary>
+    /// <summary>A game recorded by its window is taken as it is, so the aspect ratio is then only for the desktop.</summary>
     private void ShowGameWindowState()
     {
         bool gameWindow = GameWindowCheck.IsChecked == true;
-        AreaRow.IsEnabled = !gameWindow;
-        AreaRow.Opacity = gameWindow ? 0.45 : 1;
-        AreaRow.ToolTip = gameWindow ? "Off while Prefer game window capture is on: a game's window is recorded as it is." : null;
+        AreaLabel.Text = gameWindow ? "Desktop aspect ratio" : "Aspect ratio";
+        AreaHint.Visibility = gameWindow ? Visibility.Visible : Visibility.Collapsed;
     }
 
     // ---- microphones ---------------------------------------------------------------------------

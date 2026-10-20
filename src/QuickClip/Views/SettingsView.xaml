@@ -103,10 +103,12 @@
                             <ColumnDefinition Width="160" />
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
-                        <TextBlock Text="Aspect ratio" VerticalAlignment="Center" />
+                        <TextBlock x:Name="AreaLabel" Text="Aspect ratio" VerticalAlignment="Center" />
                         <ComboBox x:Name="AreaCombo" Grid.Column="1" SelectionChanged="Changed"
                                   ToolTip="Record only the middle of a wider (or taller) monitor, like the 16:9 center of an ultrawide" />
                     </Grid>
+                    <TextBlock x:Name="AreaHint" Style="{StaticResource Hint}" Margin="160,4,0,0" TextWrapping="Wrap" Visibility="Collapsed"
+                               Text="Only for the desktop, when no game is running. A game's window is recorded as it is." />
 
                     <Grid Style="{StaticResource Row}">
                         <Grid.ColumnDefinitions>

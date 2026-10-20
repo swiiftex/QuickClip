@@ -286,7 +286,13 @@ namespace qc
                 sink = nullptr;
             }
 
-            bool TryBuild(const char* source, const std::string& args, AVBufferRef* device, std::string& error)
+            /// The graphics card's encoder through Windows (Media Foundation) takes NV12 pictures only, and converting on
+            /// the graphics card can't be relied on (scale_d3d11 fails on some drivers): those frames are copied back
+            /// and converted on the CPU, which costs about a core at 1440p60. It's only for when the card's own route
+            /// can't be used.
+            static bool NeedsSystemFrames(const Engine::Shared& s) { return s.encoder.ends_with("_mf"); }
+
+            bool TryBuild(const char* source, const std::string& args, AVBufferRef* device, bool systemFrames, std::string& error)
             {
                 avfilter_graph_free(&graph);
                 graph = avfilter_graph_alloc();
@@ -294,12 +300,27 @@ namespace qc
                 if (!src) { error = std::string(source) + " is not available in this FFmpeg build"; return false; }
                 src->hw_device_ctx = av_buffer_ref(device);
                 int ret = avfilter_init_str(src, args.c_str());
+                AVFilterContext* last = src;
+                if (ret >= 0 && systemFrames)
+                {
+                    graph->scale_sws_opts = av_strdup("threads=0");
+                    const char* chain[][3] = { { "hwdownload", "download", nullptr }, { "format", "bgra", "pix_fmts=bgra" },
+                                               { "format", "nv12", "pix_fmts=nv12" } };
+                    for (const auto& [filter, name, filterArgs] : chain)
+                    {
+                        AVFilterContext* f = avfilter_graph_alloc_filter(graph, avfilter_get_by_name(filter), name);
+                        ret = f ? avfilter_init_str(f, filterArgs) : AVERROR(ENOMEM);
+                        if (ret >= 0) ret = avfilter_link(last, 0, f, 0);
+                        if (ret < 0) break;
+                        last = f;
+                    }
+                }
                 if (ret >= 0)
                 {
                     sink = avfilter_graph_alloc_filter(graph, avfilter_get_by_name("buffersink"), "sink");
                     ret = avfilter_init_str(sink, nullptr);
                 }
-                if (ret >= 0) ret = avfilter_link(src, 0, sink, 0);
+                if (ret >= 0) ret = avfilter_link(last, 0, sink, 0);
                 if (ret >= 0) ret = avfilter_graph_config(graph, nullptr);
                 if (ret < 0)
                 {
@@ -328,17 +349,18 @@ namespace qc
                 // can't hand frames over much faster than 60 fps (about 75 of 120). Windows Graphics Capture scales on
                 // the GPU and keeps up at 120 fps and more. Each is the other's fallback.
                 bool preferGraphics = scaled || s.fps > 60;
+                bool system = NeedsSystemFrames(s);
                 std::string first, second;
                 fallback = false;
-                if (!preferGraphics && TryBuild("ddagrab", dda, device, first)) { duplication = true; return true; }
-                if (TryBuild("gfxcapture", wgc, device, second))
+                if (!preferGraphics && TryBuild("ddagrab", dda, device, system, first)) { duplication = true; return true; }
+                if (TryBuild("gfxcapture", wgc, device, system, second))
                 {
                     duplication = false;
                     fallback = !preferGraphics;
                     if (fallback) Log("desktop duplication unavailable (%s); using graphics capture for now", first.c_str());
                     return true;
                 }
-                if (preferGraphics && TryBuild("ddagrab", dda, device, first))
+                if (preferGraphics && TryBuild("ddagrab", dda, device, system, first))
                 {
                     if (scaled) Log("scaling unavailable (%s); recording at the area's native size", second.c_str());
                     else Log("graphics capture unavailable (%s); using desktop duplication", second.c_str());
@@ -358,7 +380,7 @@ namespace qc
                     static_cast<unsigned long long>(reinterpret_cast<uintptr_t>(window)), s.fps, s.cursor ? 1 : 0, width, height);
                 fallback = false;
                 duplication = false;
-                return TryBuild("gfxcapture", wgc, device, error);
+                return TryBuild("gfxcapture", wgc, device, NeedsSystemFrames(s), error);
             }
 
             bool OpenEncoder(const Engine::Shared& s, int videoKbps, std::string& error)
@@ -369,7 +391,7 @@ namespace qc
                 encoder->width = av_buffersink_get_w(sink);
                 encoder->height = av_buffersink_get_h(sink);
                 encoder->pix_fmt = static_cast<AVPixelFormat>(av_buffersink_get_format(sink));
-                encoder->hw_frames_ctx = av_buffer_ref(av_buffersink_get_hw_frames_ctx(sink));
+                if (AVBufferRef* frames = av_buffersink_get_hw_frames_ctx(sink)) encoder->hw_frames_ctx = av_buffer_ref(frames);
                 encoder->time_base = AVRational{ 1, s.fps };
                 encoder->framerate = AVRational{ s.fps, 1 };
                 encoder->gop_size = s.fps; // a keyframe every second: clips start close to the requested length
@@ -402,6 +424,12 @@ namespace qc
                 else if (name.find("_qsv") != std::string::npos)
                 {
                     av_dict_set(&options, "preset", "medium", 0);
+                }
+                else if (name.find("_mf") != std::string::npos)
+                {
+                    // The graphics card's encoder through Windows; never Windows' own software one.
+                    av_dict_set(&options, "hw_encoding", "1", 0);
+                    av_dict_set(&options, "rate_control", "pc_vbr", 0);
                 }
                 int ret = avcodec_open2(encoder, codec, &options);
                 av_dict_free(&options);

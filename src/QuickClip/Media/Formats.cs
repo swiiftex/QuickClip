@@ -94,9 +94,37 @@ internal static class VideoEncoders
         new("av1_qsv", "av1", "AV1 · Intel GPU", true, Export: false),
         new("libsvtav1", "av1", "AV1 · CPU (SVT-AV1)", false),
         new("libvpx-vp9", "vp9", "VP9 · CPU", false),
+        // The graphics card's encoder through Windows (Media Foundation), for recording when the card's own route
+        // can't be used: FFmpeg's NVENC needs NVIDIA driver 610 or newer, which GTX 900 and 10 series cards never get.
+        new("av1_mf", "av1", "AV1 · graphics card, through Windows", true, Export: false),
+        new("hevc_mf", "hevc", "H.265/HEVC · graphics card, through Windows", true, Export: false),
+        new("h264_mf", "h264", "H.264 · graphics card, through Windows", true, Export: false),
     ];
 
     public static VideoEncoder? Find(string id) => All.FirstOrDefault(e => e.Id == id);
+
+    /// <summary>Each graphics card's driver and its version, from Windows' display adapter settings.</summary>
+    private static string GraphicsDrivers()
+    {
+        try
+        {
+            using var adapters = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(
+                @"SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}");
+            if (adapters == null) return "";
+            var drivers = new List<string>();
+            foreach (string name in adapters.GetSubKeyNames().Where(n => n.All(char.IsDigit)).Order())
+            {
+                using var adapter = adapters.OpenSubKey(name);
+                if (adapter?.GetValue("DriverVersion") is string version)
+                    drivers.Add($"{adapter.GetValue("DriverDesc")} {version}");
+            }
+            return string.Join(";", drivers);
+        }
+        catch (Exception)
+        {
+            return ""; // can't read it: test as before
+        }
+    }
 
     private static readonly SemaphoreSlim Gate = new(1, 1);
     private static HashSet<string>? _available;
@@ -112,8 +140,9 @@ internal static class VideoEncoders
             var result = new HashSet<string>();
             if (Deps.FFmpeg == null) return _available = result;
 
+            // Tested again when FFmpeg, the encoders or a graphics driver change.
             var fi = new FileInfo(Deps.FFmpeg);
-            string cacheKey = $"{fi.FullName}|{fi.Length}|{fi.LastWriteTimeUtc.Ticks}|{string.Join(",", All.Select(e => e.Id))}";
+            string cacheKey = $"{fi.FullName}|{fi.Length}|{fi.LastWriteTimeUtc.Ticks}|{string.Join(",", All.Select(e => e.Id))}|{GraphicsDrivers()}";
             var settings = AppSettings.Current;
             if (settings.EncoderCacheKey == cacheKey && settings.EncoderCache is { Count: > 0 })
                 return _available = new HashSet<string>(settings.EncoderCache);
@@ -127,12 +156,18 @@ internal static class VideoEncoders
             var tests = All.Where(e => compiled.Contains(e.Id)).Select(async e =>
             {
                 if (!e.Hardware) return (e.Id, true);
-                // GPU encoders are compiled in regardless of hardware; try a tiny encode.
-                var (code, _, _) = await Proc.RunAsync(Deps.FFmpeg,
+                // GPU encoders are compiled in regardless of hardware; try a tiny encode. Through Windows, only the
+                // graphics card's encoder counts, not Windows' own software one, and it takes NV12 pictures.
+                bool windows = e.Id.EndsWith("_mf", StringComparison.Ordinal);
+                var (code, _, error) = await Proc.RunAsync(Deps.FFmpeg,
                 [
                     "-hide_banner", "-v", "error", "-f", "lavfi", "-i", "color=c=black:s=640x360:r=30:d=0.2",
-                    "-frames:v", "3", "-pix_fmt", "yuv420p", "-c:v", e.Id, "-f", "null", "-",
+                    "-frames:v", "3", "-pix_fmt", windows ? "nv12" : "yuv420p", "-c:v", e.Id,
+                    .. windows ? ["-hw_encoding", "1"] : Array.Empty<string>(), "-f", "null", "-",
                 ]);
+                if (code != 0)
+                    Log.Write($"Video encoder {e.Id} doesn't work here: " +
+                              (error.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).FirstOrDefault() ?? $"exit code {code}"));
                 return (e.Id, code == 0);
             });
             foreach (var (id, ok) in await Task.WhenAll(tests))
@@ -140,8 +175,11 @@ internal static class VideoEncoders
             foreach (var audio in new[] { "libopus", "libmp3lame", "libvorbis", "libtheora" })
                 if (compiled.Contains(audio)) result.Add(audio);
 
-            settings.EncoderCacheKey = cacheKey;
-            settings.EncoderCache = [.. result];
+            // A result without any graphics card encoder may be a passing problem (the card busy, a driver being
+            // installed): it's tested again next time rather than remembered.
+            bool anyHardware = All.Any(e => e.Hardware && result.Contains(e.Id));
+            settings.EncoderCacheKey = anyHardware ? cacheKey : null;
+            settings.EncoderCache = anyHardware ? [.. result] : null;
             settings.Save();
             return _available = result;
         }
