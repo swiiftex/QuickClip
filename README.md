@@ -13,7 +13,7 @@ and lets you trim, crop and remix the audio tracks before sharing.
 - **Prefer game window capture**: while a game is running, QuickClip records just its window (still when you tab
   out, until it closes), so notifications and overlay windows on top of it (Discord, Game Bar, AMD, NVIDIA) aren't in
   the clip; the monitor otherwise. Overlays a game draws into its own picture, like Steam's, can't be left out. The
-  crop is off while this is on.
+  aspect ratio then only shapes desktop recordings (no game running); a game's window is recorded as it is.
 - **Separate audio tracks**: *Desktop* (everything else), *Chat* (Discord, TeamSpeak, Mumble, Teams, Zoom, Skype,
   Slack and other voice apps), *Music* (Spotify, TIDAL, Apple Music, Deezer, Amazon Music, YouTube Music, foobar2000
   and other music apps) and *Mic*. Chat and music apps are detected automatically. Only the apps themselves are
@@ -23,7 +23,9 @@ and lets you trim, crop and remix the audio tracks before sharing.
 - **Quality presets** Low → Medium → High → Ultra → Indistinguishable, with **frame rate** (30–240 fps) and
   **output resolution** set independently.
 - **GPU encoding**, newest codec first: AV1 on NVIDIA/AMD/Intel cards that support it, then HEVC, then H.264.
-  Capture and encoding stay on the GPU (about 2% of one CPU core while recording).
+  Capture and encoding stay on the GPU (about 2% of one CPU core while recording). Cards whose own route doesn't
+  work record through Windows' Media Foundation encoder instead, at the cost of about a CPU core: FFmpeg's NVENC
+  needs NVIDIA driver 610 or newer, which GTX 900 and 10 series cards don't get.
 - **Hotkey** of your choice (default Alt+F10), tray icon, start with Windows, minimize/close to tray.
 - **Game detection**: clips go in a folder per game (from Windows' game list, the Steam/Epic/Riot/GOG/EA/Ubisoft/Xbox
   install folder, or a fullscreen window); anything else goes in *Desktop*.

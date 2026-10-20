@@ -111,7 +111,8 @@ internal static class RecordingPresets
 
     /// <summary>GPU encoders usable for recording, newest codec first.</summary>
     public static readonly string[] RecordingEncoderOrder =
-        ["av1_nvenc", "av1_amf", "av1_qsv", "hevc_nvenc", "hevc_amf", "hevc_qsv", "h264_nvenc", "h264_amf", "h264_qsv"];
+        ["av1_nvenc", "av1_amf", "av1_qsv", "hevc_nvenc", "hevc_amf", "hevc_qsv", "h264_nvenc", "h264_amf", "h264_qsv",
+         "av1_mf", "hevc_mf", "h264_mf"]; // through Windows: when none of the cards' own routes work
 
     public static VideoEncoder? DefaultEncoder(IReadOnlySet<string> available) =>
         RecordingEncoderOrder.Where(available.Contains).Select(VideoEncoders.Find).FirstOrDefault(e => e != null);
