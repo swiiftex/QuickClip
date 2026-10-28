@@ -190,7 +190,8 @@ internal sealed class Recorder
         string Names(IEnumerable<uint> pids) =>
             pids.Any() ? string.Join(", ", pids.Select(p => names.GetValueOrDefault(p, $"process {p}")).Distinct()) : "nothing";
         string desktop = plan.Exclude == 0 ? $"Desktop only {Names(plan.Desktop)}"
-            : $"Desktop everything except {Names([plan.Exclude])}" + (plan.Desktop.Count > 0 ? $" but with {Names(plan.Desktop)}, which it started" : "");
+            : $"Desktop everything except {Names([plan.Exclude])}" + (plan.Desktop.Count > 0 ? $" but with {Names(plan.Desktop)}, which it started" : "") +
+              (plan.Subtract.Count > 0 ? $", less {Names(plan.Subtract)}'s sound" : "");
         string routing = desktop + $"; Chat {Names(plan.Chat)}; Music {Names(plan.Music)}" +
                          (plan.Missing.Count > 0 ? $"; Desktop can't record {Names(plan.Missing)}, which started the chat or music app" : "");
         if (routing == _routing) return;

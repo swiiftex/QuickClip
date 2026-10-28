@@ -145,12 +145,24 @@ extern "C"
     }
 
     __declspec(dllexport) void qc_set_audio_processes(uint32_t desktopExclude, const uint32_t* desktopInclude, int desktopCount,
-        const uint32_t* chat, int chatCount, const uint32_t* music, int musicCount)
+        const uint32_t* chat, int chatCount, const uint32_t* music, int musicCount, const uint32_t* subtract, int subtractCount)
     {
         std::shared_lock guard(g_engineLock);
         if (!g_engine) return;
         auto list = [](const uint32_t* pids, int count) { return std::vector<DWORD>(pids, pids + (pids && count > 0 ? count : 0)); };
-        g_engine->SetAudioProcesses(desktopExclude, list(desktopInclude, desktopCount), list(chat, chatCount), list(music, musicCount));
+        g_engine->SetAudioProcesses(desktopExclude, list(desktopInclude, desktopCount), list(chat, chatCount), list(music, musicCount),
+            list(subtract, subtractCount));
+    }
+
+    __declspec(dllexport) int64_t qc_test_subtract_offset(uint32_t pid)
+    {
+        std::shared_lock guard(g_engineLock);
+        return g_engine ? g_engine->TestSubtractOffset(pid) : INT64_MIN;
+    }
+
+    __declspec(dllexport) void qc_test_play_noise(int milliseconds, float amplitude)
+    {
+        qc::PlayTestNoise(milliseconds, amplitude);
     }
 
     __declspec(dllexport) void qc_restart_video()

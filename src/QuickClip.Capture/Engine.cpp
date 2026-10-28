@@ -776,11 +776,13 @@ namespace qc
             return false;
         }
 
+        nativeRate_ = DefaultOutputRate();
+        canceller_ = std::make_unique<Canceller>(nativeRate_, std::make_unique<MixerSink>(*tracks_[0]->mixer, nativeRate_));
         // Until the app reports its chat and music apps: everything except QuickClip's own previews.
-        SetAudioProcesses(GetCurrentProcessId(), {}, {}, {});
+        SetAudioProcesses(GetCurrentProcessId(), {}, {}, {}, {});
         for (size_t i = 0; i < mics_.size(); i++)
-            micSources_.push_back(std::make_unique<AudioSource>(SourceKind::Microphone, 0, mics_[i].deviceId,
-                *tracks_[static_cast<size_t>(micTracks[i])]->mixer));
+            micSources_.push_back(std::make_unique<AudioSource>(SourceKind::Microphone, 0, mics_[i].deviceId, SampleRate,
+                std::make_unique<MixerSink>(*tracks_[static_cast<size_t>(micTracks[i])]->mixer, SampleRate)));
         audioThread_ = std::thread([this] { AudioLoop(); });
         watchThread_ = std::thread([this] { WatchLoop(); });
         return true;
@@ -865,6 +867,7 @@ namespace qc
             sources_.clear();
         }
         micSources_.clear();
+        canceller_.reset(); // after the sources that feed it
         // A capture call returns with the next frame; with a frozen screen that may take a while.
         for (int i = 0; i < 150 && shared_->runningVideoThreads > 0; i++) Sleep(20);
         if (videoThread_.joinable())
@@ -875,33 +878,62 @@ namespace qc
     }
 
     void Engine::SetAudioProcesses(DWORD desktopExclude, const std::vector<DWORD>& desktopInclude,
-        const std::vector<DWORD>& chat, const std::vector<DWORD>& music)
+        const std::vector<DWORD>& chat, const std::vector<DWORD>& music, const std::vector<DWORD>& desktopSubtract)
     {
         std::set<SourceKey> wanted;
+        bool subtracting = false;
         if (PerAppCaptureAvailable())
         {
-            if (desktopExclude != 0) wanted.insert({ SourceKind::ProcessExclude, desktopExclude, 0 });
-            for (DWORD pid : desktopInclude) wanted.insert({ SourceKind::ProcessInclude, pid, 0 });
-            if (chatTrack_ >= 0) for (DWORD pid : chat) wanted.insert({ SourceKind::ProcessInclude, pid, chatTrack_ });
-            if (musicTrack_ >= 0) for (DWORD pid : music) wanted.insert({ SourceKind::ProcessInclude, pid, musicTrack_ });
+            auto subtract = [&](DWORD pid) { return std::find(desktopSubtract.begin(), desktopSubtract.end(), pid) != desktopSubtract.end(); };
+            for (DWORD pid : chat) subtracting |= chatTrack_ >= 0 && subtract(pid);
+            for (DWORD pid : music) subtracting |= musicTrack_ >= 0 && subtract(pid);
+            subtracting &= desktopExclude != 0;
+            if (desktopExclude != 0) wanted.insert({ SourceKind::ProcessExclude, desktopExclude, 0, subtracting });
+            for (DWORD pid : desktopInclude) wanted.insert({ SourceKind::ProcessInclude, pid, 0, false });
+            if (chatTrack_ >= 0) for (DWORD pid : chat) wanted.insert({ SourceKind::ProcessInclude, pid, chatTrack_, subtracting && subtract(pid) });
+            if (musicTrack_ >= 0) for (DWORD pid : music) wanted.insert({ SourceKind::ProcessInclude, pid, musicTrack_, subtracting && subtract(pid) });
         }
         else
-            wanted.insert({ SourceKind::ProcessExclude, GetCurrentProcessId(), 0 }); // falls back to all system audio
+            wanted.insert({ SourceKind::ProcessExclude, GetCurrentProcessId(), 0, false }); // falls back to all system audio
 
         std::lock_guard guard(sourcesLock_);
-        size_t stopped = std::erase_if(sources_, [&](const auto& source) { return !wanted.contains(source.first); });
+        size_t stopped = 0;
+        for (auto it = sources_.begin(); it != sources_.end();)
+        {
+            if (wanted.contains(it->first)) { ++it; continue; }
+            SourceKey key = it->first;
+            it = sources_.erase(it); // stops it, so it no longer feeds the subtraction
+            if (key.subtract && key.kind == SourceKind::ProcessInclude) canceller_->RemoveReference(key.pid);
+            stopped++;
+        }
         // Old streams stop before new ones start: a moment of silence rather than the same sound twice.
         size_t started = 0;
         for (const auto& key : wanted)
             if (!sources_.contains(key))
             {
-                sources_.emplace(key, std::make_unique<AudioSource>(key.kind, key.pid, L"", *tracks_[static_cast<size_t>(key.track)]->mixer));
+                auto& mixer = *tracks_[static_cast<size_t>(key.track)]->mixer;
+                std::unique_ptr<AudioSink> sink;
+                int rate = SampleRate;
+                if (!key.subtract) sink = std::make_unique<MixerSink>(mixer, SampleRate);
+                else
+                {
+                    // Everything goes to Desktop only through the subtraction; an app taken out of it goes to its own
+                    // track as well. Both at the output's own rate, where the app's sound is the same in each.
+                    rate = nativeRate_;
+                    sink = key.kind == SourceKind::ProcessExclude
+                        ? std::make_unique<TeeSink>(nullptr, &canceller_->Everything())
+                        : std::make_unique<TeeSink>(std::make_unique<MixerSink>(mixer, nativeRate_), &canceller_->Reference(key.pid));
+                }
+                sources_.emplace(key, std::make_unique<AudioSource>(key.kind, key.pid, L"", rate, std::move(sink)));
                 started++;
             }
         if (stopped > 0 || started > 0)
-            Log("app audio changed: desktop %s, %zu chat and %zu music processes (%zu streams stopped, %zu started)",
+        {
+            std::string less = subtracting ? ", less the others' sound at " + std::to_string(nativeRate_) + " Hz" : "";
+            Log("app audio changed: desktop %s%s, %zu chat and %zu music processes (%zu streams stopped, %zu started)",
                 desktopExclude == 0 ? "is recorded app by app" : desktopInclude.empty() ? "is all but one app" : "is all but one app, with apps it started",
-                chat.size(), music.size(), stopped, started);
+                less.c_str(), chat.size(), music.size(), stopped, started);
+        }
     }
 
     void Engine::AudioLoop()
@@ -911,6 +943,7 @@ namespace qc
         while (!shared_->stop)
         {
             Sleep(20);
+            canceller_->Process();
             int64_t upTo = (NowUs() - shared_->t0) * SampleRate / 1000000 - latency;
             for (size_t i = 0; i < tracks_.size(); i++)
             {

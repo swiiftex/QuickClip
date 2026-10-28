@@ -106,9 +106,10 @@ namespace qc
         ~Engine();
         bool Start(std::string& error);
         /// Desktop records everything but `desktopExclude`'s process tree (nothing when that is 0) plus the trees of
-        /// `desktopInclude`. Chat and Music record their processes' trees.
+        /// `desktopInclude`, less the sound of `desktopSubtract`'s trees (some of the Chat and Music processes), taken
+        /// out sample for sample. Chat and Music record their processes' trees.
         void SetAudioProcesses(DWORD desktopExclude, const std::vector<DWORD>& desktopInclude,
-            const std::vector<DWORD>& chat, const std::vector<DWORD>& music);
+            const std::vector<DWORD>& chat, const std::vector<DWORD>& music, const std::vector<DWORD>& desktopSubtract);
         bool Save(const std::wstring& path, int seconds, const std::wstring& title, std::string& error);
         void GetStats(QcStats& stats);
         /// Starts capture again on the next frame (the display changed; the old capture may be stale).
@@ -119,6 +120,8 @@ namespace qc
         void TestFreezeVideo(int ms);
         /// Tests: counts keyframes smaller than this as a flat picture (0 = the normal limit).
         void TestFlatBelow(int bytes);
+        /// Tests: where a subtracted process's sound was found in Desktop's capture, or INT64_MIN while it isn't.
+        int64_t TestSubtractOffset(DWORD pid) { return canceller_ ? canceller_->OffsetOf(pid) : INT64_MIN; }
 
         struct Shared;
 
@@ -156,9 +159,13 @@ namespace qc
             SourceKind kind;
             DWORD pid;
             int track;
+            bool subtract;              // also goes to Desktop's subtraction (everything, or an app taken out of it)
             auto operator<=>(const SourceKey&) const = default;
         };
         std::mutex sourcesLock_;
+        // Taking apps out of Desktop works at the output's own rate, where their sound is identical in every capture.
+        int nativeRate_ = SampleRate;
+        std::unique_ptr<Canceller> canceller_;
         std::map<SourceKey, std::unique_ptr<AudioSource>> sources_;
         std::vector<std::unique_ptr<AudioSource>> micSources_;
 
