@@ -158,11 +158,12 @@ Settings live in `%APPDATA%\QuickClip`, thumbnails and the log in `%LOCALAPPDATA
 - **Recording engine** (`src/QuickClip.Capture`, C++): FFmpeg's Desktop Duplication source (Windows Graphics
   Capture above 60 fps, where Desktop Duplication can fall well short of the frame rate, and when scaling) feeds GPU
   frames straight into the hardware encoder. Audio comes from WASAPI process
-  loopback. Windows can leave one process tree out of a capture, so *Desktop* is everything except the chat or music
-  app; with more than one of those running, *Desktop* instead captures every other app that has audio, one by one,
-  carrying on while it runs so its next sound starts on time. *Chat* and *Music* capture only their apps' own
-  processes; an app one of them started (part of its process tree) is captured onto *Desktop* instead. *Mic* is the
-  microphone. Every stream is timestamped on the same clock and kept as encoded packets in a RAM ring buffer; saving
+  loopback. Windows can leave only one process tree out of a capture, so *Desktop* is everything except the chat
+  app (or the music app), and with both running, the music app's sound is subtracted from it sample for sample:
+  captured at the output's own rate, an app's samples are identical in every capture, and the exact offset between
+  two captures is found by matching the app's sound in both (then checked as it goes on). Desktop is then converted to
+  48 kHz like the other tracks. *Chat* and *Music* capture only their apps' own processes; an app one of them started
+  (part of its process tree) is captured onto *Desktop* instead. *Mic* is the microphone. Every stream is timestamped on the same clock and kept as encoded packets in a RAM ring buffer; saving
   writes the packets from the last keyframe before the start point into an MP4 with named tracks.
 - **Player and preview** use [libmpv](https://mpv.io) embedded in a native child window; the tracks are merged by mpv's
   `lavfi-complex` and remixed per track by a volume filter that the sliders adjust live. An added sound is previewed

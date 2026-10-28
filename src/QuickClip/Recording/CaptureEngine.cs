@@ -154,9 +154,16 @@ internal static class CaptureEngine
     /// <summary>Tests: counts keyframes smaller than this many bytes as a flat (black) picture.</summary>
     internal static void TestFlatBelow(int bytes) => qc_test_flat_below(bytes);
 
+    /// <summary>Tests: where a process's sound was found in Desktop's capture to take it out, or null while it isn't.</summary>
+    internal static long? TestSubtractOffset(uint pid) => qc_test_subtract_offset(pid) is var offset && offset != long.MinValue ? offset : null;
+
+    /// <summary>Tests: plays quiet noise from this process for a while (returns at once).</summary>
+    internal static void TestPlayNoise(int milliseconds, float amplitude) => qc_test_play_noise(milliseconds, amplitude);
+
     /// <summary>Which apps each track records; see <see cref="AudioRouting"/>.</summary>
     public static void SetAudioProcesses(AudioRouting.Plan plan) =>
-        qc_set_audio_processes(plan.Exclude, [.. plan.Desktop], plan.Desktop.Count, [.. plan.Chat], plan.Chat.Count, [.. plan.Music], plan.Music.Count);
+        qc_set_audio_processes(plan.Exclude, [.. plan.Desktop], plan.Desktop.Count, [.. plan.Chat], plan.Chat.Count, [.. plan.Music], plan.Music.Count,
+            [.. plan.Subtract], plan.Subtract.Count);
 
     public static string? Save(string path, int seconds, string title)
     {
@@ -181,7 +188,9 @@ internal static class CaptureEngine
     [DllImport(Dll)] private static extern void qc_test_freeze_video(int milliseconds);
     [DllImport(Dll)] private static extern void qc_test_flat_below(int bytes);
     [DllImport(Dll)] private static extern void qc_set_audio_processes(uint desktopExclude, uint[] desktopInclude, int desktopCount,
-        uint[] chat, int chatCount, uint[] music, int musicCount);
+        uint[] chat, int chatCount, uint[] music, int musicCount, uint[] subtract, int subtractCount);
+    [DllImport(Dll)] private static extern long qc_test_subtract_offset(uint pid);
+    [DllImport(Dll)] private static extern void qc_test_play_noise(int milliseconds, float amplitude);
     [DllImport(Dll, CharSet = CharSet.Unicode)] private static extern int qc_save(string path, int seconds, string title, [Out] char[] error, int errorLength);
     [DllImport(Dll)] private static extern int qc_get_stats(out Stats stats);
 }

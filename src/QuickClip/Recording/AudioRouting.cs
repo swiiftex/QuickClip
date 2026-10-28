@@ -4,8 +4,9 @@ namespace QuickClip.Recording;
 /// Decides which apps each audio track records. Windows records an app together with every app it started (a
 /// process tree), and can leave one such tree out of a capture. Chat and Music get only the chat and music apps' own
 /// processes: an app one of them started, like a browser opened from a link in Discord, is on Desktop. With a single
-/// chat or music app, Desktop is everything but that app; with more than one, Desktop instead records every other
-/// app that has audio, one by one.
+/// chat or music app, Desktop is everything but that app. With more than one, Desktop is everything but the first
+/// (a chat app, whose voices are least wanted there), with the others' sound subtracted from it sample for sample;
+/// only if one of them was started by the first does Desktop instead record every other app with audio, one by one.
 /// </summary>
 internal static class AudioRouting
 {
@@ -15,6 +16,9 @@ internal static class AudioRouting
     /// </summary>
     public sealed record Plan(uint Exclude, IReadOnlyList<uint> Desktop, IReadOnlyList<uint> Chat, IReadOnlyList<uint> Music)
     {
+        /// <summary>Chat and Music processes whose sound is subtracted from Desktop.</summary>
+        public IReadOnlyList<uint> Subtract { get; init; } = [];
+
         /// <summary>Apps with audio that Desktop can't record (app by app): they started a chat or music app.</summary>
         public IReadOnlyList<uint> Missing { get; init; } = [];
     }
@@ -66,10 +70,12 @@ internal static class AudioRouting
 
         // The chat and music apps' own processes, and the first process of each other app they started.
         var own = new HashSet<uint>();
+        var ownOf = new Dictionary<uint, HashSet<uint>>();
         var started = new Dictionary<uint, List<uint>>();
         foreach (uint root in separated)
         {
-            own.UnionWith(Own(root, byPid, children, exePath, out var others));
+            ownOf[root] = Own(root, byPid, children, exePath, out var others);
+            own.UnionWith(ownOf[root]);
             started[root] = others;
         }
 
@@ -81,15 +87,18 @@ internal static class AudioRouting
         {
             var result = new List<uint>();
             var seen = new HashSet<uint>();
-            var stack = new Stack<uint>(roots.Reverse());
-            while (stack.Count > 0)
+            foreach (uint root in roots)
             {
-                uint pid = stack.Pop();
-                if (!seen.Add(pid)) continue;
-                var ownChildren = children.GetValueOrDefault(pid, []).Where(own.Contains).ToList();
-                if (!Descendants(pid).Any(foreign.Contains) || ownChildren.Count == 0 || Sessions().Contains(pid)) result.Add(pid);
-                else
-                    for (int i = ownChildren.Count - 1; i >= 0; i--) stack.Push(ownChildren[i]);
+                var stack = new Stack<uint>([root]);
+                while (stack.Count > 0)
+                {
+                    uint pid = stack.Pop();
+                    if (!seen.Add(pid)) continue;
+                    var ownChildren = children.GetValueOrDefault(pid, []).Where(ownOf[root].Contains).ToList();
+                    if (!Descendants(pid).Any(foreign.Contains) || ownChildren.Count == 0 || Sessions().Contains(pid)) result.Add(pid);
+                    else
+                        for (int i = ownChildren.Count - 1; i >= 0; i--) stack.Push(ownChildren[i]);
+                }
             }
             return result;
         }
@@ -99,6 +108,13 @@ internal static class AudioRouting
         // One app: everything but it, plus the apps it started.
         if (separated.Length == 1)
             return new(separated[0], [.. started[separated[0]].Order()], chatTrack, musicTrack);
+
+        // More: everything but the first, less the others' sound, which works when Windows doesn't leave them out
+        // with the first already (as it would one the first started).
+        uint first = separated[0];
+        var firstTree = Descendants(first).ToHashSet();
+        if (!separated.Skip(1).Any(firstTree.Contains))
+            return new(first, [.. started[first].Order()], chatTrack, musicTrack) { Subtract = Track([.. separated.Skip(1)]) };
 
         // App by app: every process with audio but the chat and music apps' own and QuickClip's.
         var candidates = Sessions()

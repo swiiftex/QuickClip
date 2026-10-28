@@ -9,7 +9,7 @@ namespace QuickClip.Tests;
 /// what they show). Needs a GPU encoder; on machines without one the tests pass without doing anything.
 /// </summary>
 [Collection("media")]
-public sealed class CaptureEngineTests(MediaFixture media)
+public sealed class CaptureEngineTests(MediaFixture media, Xunit.Abstractions.ITestOutputHelper output)
 {
     [Fact]
     public async Task Records_and_saves_a_clip_with_named_audio_tracks()
@@ -88,6 +88,96 @@ public sealed class CaptureEngineTests(MediaFixture media)
         Assert.Equal(tracks, info.Audio.Select(a => a.DisplayName));
         Assert.All(info.Audio, a => Assert.Equal("aac", a.Codec));
         File.Delete(clip);
+    }
+
+    /// <summary>
+    /// With a chat and a music app, Desktop is everything but the chat app, less the music app's sound subtracted
+    /// sample for sample. Here this test is the "music app", playing noise at -80 dB (too quiet to hear), and a
+    /// sleeping process stands in for the chat app: the noise has to be on Music and gone from Desktop.
+    /// </summary>
+    [Fact]
+    public async Task Desktop_takes_an_apps_sound_out_by_subtracting_it()
+    {
+        if (!CaptureEngine.IsAvailable) return;
+        CaptureEngine.Initialize();
+        var encoder = RecordingPresets.DefaultEncoder(await VideoEncoders.GetAvailableAsync());
+        var monitor = Monitors.List().FirstOrDefault(m => m.IsPrimary);
+        if (encoder == null || monitor == null) return;
+
+        using var chat = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("cmd.exe", "/c ping -n 30 127.0.0.1 >nul")
+        {
+            CreateNoWindow = true,
+            UseShellExecute = false,
+        })!;
+        uint self = (uint)Environment.ProcessId;
+        var area = RecordingPresets.Area(monitor.Width, monitor.Height, "16:9");
+        Assert.Null(CaptureEngine.Start(monitor.DeviceName, "16:9", 30, 0, 0, encoder.Id,
+            RecordingPresets.VideoKbps(RecordingQuality.Low, area.Width, area.Height, 30, encoder.Family), RecordingPresets.AudioKbps,
+            bufferSeconds: 10, cursor: true, splitChat: false, splitMusic: true, mics: [], separateMics: false));
+        string clip = media.Out("engine-subtract.mp4");
+        long? offset = null;
+        try
+        {
+            CaptureEngine.SetAudioProcesses(new AudioRouting.Plan((uint)chat.Id, [], [], [self]) { Subtract = [self] });
+            CaptureEngine.TestPlayNoise(19000, 1e-4f);
+            for (int i = 0; i < 150 && offset == null; i++)
+            {
+                await Task.Delay(100);
+                offset = CaptureEngine.TestSubtractOffset(self);
+            }
+            await Task.Delay(3500);
+            Assert.Null(await Task.Run(() => CaptureEngine.Save(clip, 3, "Test")));
+        }
+        finally
+        {
+            CaptureEngine.Stop();
+            try { chat.Kill(); } catch { }
+        }
+        Assert.NotNull(offset);
+
+        // How much of Music is in Desktop, at the best match within ±50 ms (each track is timed by its own capture).
+        // Changes from sample to sample are compared, which the noise is full of and most real sound isn't.
+        var desktop = Changes(await Pcm(clip, 0));
+        var music = Changes(await Pcm(clip, 1));
+        File.Delete(clip);
+        int from = 2400, length = Math.Min(desktop.Length, music.Length) - 2 * from;
+        double musicEnergy = 0, desktopEnergy = 0, best = 0;
+        for (int i = from; i < from + length; i++)
+        {
+            musicEnergy += music[i] * music[i];
+            desktopEnergy += desktop[i] * desktop[i];
+        }
+        Assert.True(musicEnergy > 0, "the noise wasn't recorded on Music");
+        for (int lag = -from; lag <= from; lag++)
+        {
+            double dot = 0;
+            for (int i = from; i < from + length; i++) dot += desktop[i + lag] * music[i];
+            best = Math.Max(best, Math.Abs(dot / musicEnergy));
+        }
+        // Other sound playing on this PC is in Desktop too, and blurs the measurement by about its level against the
+        // app's over the square root of the samples compared; allow three times that.
+        double blur = 3 * Math.Sqrt(desktopEnergy / musicEnergy / length);
+        output.WriteLine($"found at offset {offset}; {best:P2} of the app's sound left on Desktop (give or take {blur:P2}); " +
+                         $"Desktop's other sound {10 * Math.Log10(desktopEnergy / musicEnergy):0.0} dB against the app's");
+        Assert.True(best < 0.05 + blur, $"{best:P1} of the app's sound is still on Desktop");
+    }
+
+    private async Task<float[]> Pcm(string clip, int track)
+    {
+        string raw = media.Out($"track{track}.f32");
+        await MediaFixture.Run(["-i", clip, "-map", $"0:a:{track}", "-ac", "1", "-ar", "48000", "-f", "f32le", raw]);
+        var bytes = await File.ReadAllBytesAsync(raw);
+        File.Delete(raw);
+        var samples = new float[bytes.Length / 4];
+        Buffer.BlockCopy(bytes, 0, samples, 0, samples.Length * 4);
+        return samples;
+    }
+
+    private static double[] Changes(float[] s)
+    {
+        var d = new double[Math.Max(0, s.Length - 1)];
+        for (int i = 0; i < d.Length; i++) d[i] = s[i + 1] - s[i];
+        return d;
     }
 
     /// <summary>
