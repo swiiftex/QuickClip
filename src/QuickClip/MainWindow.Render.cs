@@ -116,6 +116,25 @@ public partial class MainWindow
             await Task.Delay(500);
             SaveVisual(Path.Combine(dir, "editor-options-reencode.png"));
             _editor?.SelectQualityForRender("original");
+            if (_editor != null)
+            {
+                // A format that can't hold the original's codec, then back: the video is copied again.
+                report.AppendLine($"editor at first: {_editor.EncodingForRender}");
+                _editor.SelectFormatForRender("webm");
+                await Task.Delay(300);
+                report.AppendLine($"editor as WebM: {_editor.EncodingForRender}");
+                _editor.SelectFormatForRender("source");
+                await Task.Delay(300);
+                report.AppendLine($"editor back to the source format: {_editor.EncodingForRender}");
+                _editor.SelectQualityForRender("small");
+                _editor.SelectFormatForRender("mkv");
+                await Task.Delay(300);
+                SaveVisual(Path.Combine(dir, "editor-changed.png"));
+                report.AppendLine($"editor changed: {_editor.EncodingForRender}");
+                _editor.RevertForRender();
+                await Task.Delay(300);
+                report.AppendLine($"editor reverted: {_editor.EncodingForRender}");
+            }
 
             // Save over the clip (trimmed), then undo that.
             if (_editor != null && Path.GetFileName(editorFile).StartsWith("undo-test", StringComparison.OrdinalIgnoreCase))

@@ -167,6 +167,12 @@ public partial class SettingsView : UserControl
 
             SplitChatCheck.IsChecked = s.SplitChatAudio;
             SplitMusicCheck.IsChecked = s.SplitMusicAudio;
+            if (!AudioRouting.SeparateTracks)
+            {
+                foreach (var e in new FrameworkElement[] { SplitChatCheck, ChatText, SplitMusicCheck, MusicText }) e.Visibility = Visibility.Collapsed;
+                AudioHint.Text = "Clips get a Desktop track with everything you hear and a track for the microphone, so you can set their " +
+                                 "volumes or merge them when exporting.";
+            }
             MicCheck.IsChecked = s.RecordMic;
             _mics = CaptureEngine.IsAvailable ? await Task.Run(() => { CaptureEngine.Initialize(); return CaptureEngine.EnumMicrophones(); }) : [];
             ShowMics(s.MicDeviceIds.Count > 0 ? s.MicDeviceIds : [""]);

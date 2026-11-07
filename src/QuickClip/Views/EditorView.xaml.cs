@@ -63,6 +63,7 @@ public partial class EditorView : UserControl
     private bool _loading;
     private bool _uiReady;
     private bool _refreshingEncoders;
+    private string? _pickedEncoder;                  // the encoder chosen in the list, or null to keep the original's codec
     private bool _closed;
     /// <summary>The frame rate choice "Smooth 60 fps": 60 fps with the extra frames blended into motion blur.</summary>
     private const double SmoothFps = -60;
@@ -366,6 +367,7 @@ public partial class EditorView : UserControl
             Select(ResolutionCombo, 0);
             FpsCombo.SelectedItem = null;
             EncoderCombo.SelectedItem = null;
+            _pickedEncoder = null;
             RefreshFormatList();
             RefreshFpsList();
             RefreshEncoderList();
@@ -1151,7 +1153,6 @@ public partial class EditorView : UserControl
     private void RefreshEncoderList()
     {
         var container = CurrentContainer(forOverwrite: false);
-        object? current = (EncoderCombo.SelectedItem as Choice)?.Value;
         var list = new List<Choice>();
         if (_media?.Video is { } v && container.CanCopyVideo(v.Codec))
             list.Add(new Choice($"Same as original ({ExportBuilder.CodecName(v.Codec)})", ""));
@@ -1163,8 +1164,10 @@ public partial class EditorView : UserControl
         try
         {
             EncoderCombo.ItemsSource = list;
-            // What was picked if this format allows it, else the original's codec, else a fast GPU H.264 encoder.
-            var preferred = new[] { current, "", _settings.Encoder, "h264_nvenc", "h264_amf", "h264_qsv", "libx264" }
+            // What was picked if this format allows it, else the original's codec, else a fast GPU H.264 encoder. One this
+            // put in place for another format isn't a pick: going back to a format that holds the original's codec
+            // goes back to it (and to copying the video).
+            var preferred = new[] { _pickedEncoder, "", _settings.Encoder, "h264_nvenc", "h264_amf", "h264_qsv", "libx264" }
                 .FirstOrDefault(id => id != null && list.Any(c => c.Value.Equals(id)));
             if (preferred != null) Select(EncoderCombo, preferred);
             else EncoderCombo.SelectedIndex = 0;
@@ -1207,10 +1210,40 @@ public partial class EditorView : UserControl
     {
         if (!IsInitialized) return;
         if (sender == FormatCombo) RefreshEncoderList();
-        if (sender == EncoderCombo && !_refreshingEncoders && EncoderCombo.SelectedItem is Choice { Value: string id } && id.Length > 0)
-            _settings.Encoder = id;
+        if (sender == EncoderCombo && !_refreshingEncoders && EncoderCombo.SelectedItem is Choice { Value: string id })
+        {
+            _pickedEncoder = id;
+            if (id.Length > 0) _settings.Encoder = id;
+        }
         UpdateUiState();
     }
+
+    /// <summary>
+    /// Every option back to the original, so the export is the trim alone, copied as it is (or, when the start isn't on
+    /// a keyframe, re-encoded at the original's codec and quality).
+    /// </summary>
+    private void Revert_Click(object sender, RoutedEventArgs e)
+    {
+        _pickedEncoder = null;
+        CropCheck.IsChecked = false;
+        AspectCombo.SelectedIndex = 0;
+        Select(FpsCombo, 0.0);
+        Select(QualityCombo, "original");
+        Select(ResolutionCombo, 0);
+        Select(FormatCombo, "source");
+        _settingMerge = true;
+        MergeCheck.IsChecked = false;
+        _settingMerge = false;
+        RefreshEncoderList();
+        UpdateUiState();
+        Root.Focus();
+    }
+
+    /// <summary>Whether any option differs from the original (what <see cref="Revert_Click"/> undoes).</summary>
+    private bool OptionsChanged() =>
+        _crop.Enabled || (FpsCombo.SelectedItem as Choice)?.Value is not 0.0 || (QualityCombo.SelectedItem as Choice)?.Value as string != "original"
+        || (ResolutionCombo.SelectedItem as Choice)?.Value is not 0 || (FormatCombo.SelectedItem as Choice)?.Value as string != "source"
+        || EncoderCombo.SelectedItem is Choice { Value: string { Length: > 0 } } || MergeCheck.IsChecked == true;
 
     private void TargetSize_Changed(object sender, TextChangedEventArgs e) => UpdateSummary();
 
@@ -1332,6 +1365,7 @@ public partial class EditorView : UserControl
         string resolution = !videoOut ? "" : request.MaxShortSide > 0 && v != null && Math.Min(v.Width, v.Height) > request.MaxShortSide
             ? $" · {size}" : " · original size";
         OutputHeaderText.Text = $"{c.Extension.TrimStart('.').ToUpperInvariant()}{resolution} · {tracks}";
+        RevertPanel.Visibility = OptionsChanged() ? Visibility.Visible : Visibility.Collapsed;
     }
 
     // ------------------------------------------------------------------------------------------
@@ -1656,6 +1690,9 @@ public partial class EditorView : UserControl
     internal void SeekForRender(double t) => Seek(t);
     internal bool CanUndo => _undo != null;
     internal void SelectQualityForRender(string quality) => Select(QualityCombo, quality);
+    internal void SelectFormatForRender(string format) => Select(FormatCombo, format);
+    internal void RevertForRender() => Revert_Click(this, new RoutedEventArgs());
+    internal string EncodingForRender => $"{EncodingHeaderText.Text} | revert shown: {RevertPanel.Visibility == Visibility.Visible}";
     internal void ExpandOptionsForRender()
     {
         foreach (var group in new[] { CropExpander, FpsExpander, EncodingExpander, OutputExpander }) group.IsExpanded = true;

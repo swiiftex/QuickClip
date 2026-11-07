@@ -273,6 +273,18 @@
                 <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Margin="0,0,-10,0" Padding="0,0,10,0">
                     <!-- Each group of options is closed until wanted; its heading says what it's set to -->
                     <StackPanel Margin="0,4,0,0">
+                        <!-- Shown once anything differs from the original -->
+                        <DockPanel x:Name="RevertPanel" Margin="0,6,0,0" Visibility="Collapsed">
+                            <Button DockPanel.Dock="Right" Style="{StaticResource TextButton}" Padding="9,3" Click="Revert_Click"
+                                    ToolTip="Put every option back to the original: no crop, and the original frame rate, size, format and codec, so the export is just the trim, copied as it is">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE7A7;" VerticalAlignment="Center" Margin="0,0,6,0" />
+                                    <TextBlock Text="Revert to original" />
+                                </StackPanel>
+                            </Button>
+                            <TextBlock Text="Options changed" FontSize="11.5" VerticalAlignment="Center"
+                                       Foreground="{StaticResource SubtleText}" />
+                        </DockPanel>
                         <!-- Crop -->
                         <Expander x:Name="CropExpander" Style="{StaticResource OptionsGroup}">
                             <Expander.Header>
