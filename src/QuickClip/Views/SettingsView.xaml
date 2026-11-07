@@ -164,7 +164,7 @@
             <Border Style="{StaticResource Card}">
                 <StackPanel>
                     <TextBlock Text="Audio" Style="{StaticResource CardTitle}" />
-                    <TextBlock Style="{StaticResource Hint}"
+                    <TextBlock x:Name="AudioHint" Style="{StaticResource Hint}" TextWrapping="Wrap"
                                Text="Clips get a separate track for each source, named in the editor, so you can set their volumes or merge them when exporting." />
                     <CheckBox x:Name="SplitChatCheck" Margin="0,12,0,0" Checked="Changed" Unchecked="Changed">
                         <TextBlock Text="Put voice chat on its own track (Discord, TeamSpeak, Mumble, Teams, Zoom and more)" TextWrapping="Wrap" />

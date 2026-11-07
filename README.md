@@ -14,12 +14,9 @@ and lets you trim, crop and remix the audio tracks before sharing.
   out, until it closes), so notifications and overlay windows on top of it (Discord, Game Bar, AMD, NVIDIA) aren't in
   the clip; the monitor otherwise. Overlays a game draws into its own picture, like Steam's, can't be left out. The
   aspect ratio then only shapes desktop recordings (no game running); a game's window is recorded as it is.
-- **Separate audio tracks**: *Desktop* (everything else), *Chat* (Discord, TeamSpeak, Mumble, Teams, Zoom, Skype,
-  Slack and other voice apps), *Music* (Spotify, TIDAL, Apple Music, Deezer, Amazon Music, YouTube Music, foobar2000
-  and other music apps) and *Mic*. Chat and music apps are detected automatically. Only the apps themselves are
-  taken off Desktop: a browser opened from a link in Discord, or a game started from it, stays on Desktop. Several
-  microphones can be recorded at once, mixed onto the one Mic track or each on a track of its own (named after the
-  microphone).
+- **Separate audio tracks**: *Desktop* (everything you hear) and *Mic*. Several microphones can be recorded at once,
+  mixed onto the one Mic track or each on a track of its own (named after the microphone). (Voice chat and music on
+  tracks of their own are being worked on, and are off for now.)
 - **Quality presets** Low → Medium → High → Ultra → Indistinguishable, with **frame rate** (30–240 fps) and
   **output resolution** set independently.
 - **GPU encoding**, newest codec first: AV1 on NVIDIA/AMD/Intel cards that support it, then HEVC, then H.264.
@@ -87,9 +84,7 @@ for you; installed copies update by running the new setup silently, unzipped cop
 **Stable** channel gets tested releases; **Nightly** also gets development builds (GitHub prereleases named like
 `0.6.0-nightly.1`) as new features are made.
 
-Requires Windows 10 version 2004 or later. Separating voice chat and music from desktop audio needs Windows 11 (or
-Windows 10 build 20348+); on older Windows 10 the Desktop track records all system audio and the Chat and Music tracks
-stay empty. Music played in a web browser stays on the Desktop track.
+Requires Windows 10 version 2004 or later.
 
 On Windows 11 the right-click entry sits under **Show more options**. To put it on the main menu, see
 `scripts\add-win11-menu.ps1` (it builds and signs a small app package; trusting its certificate needs one UAC prompt).
@@ -157,13 +152,11 @@ Settings live in `%APPDATA%\QuickClip`, thumbnails and the log in `%LOCALAPPDATA
 
 - **Recording engine** (`src/QuickClip.Capture`, C++): FFmpeg's Desktop Duplication source (Windows Graphics
   Capture above 60 fps, where Desktop Duplication can fall well short of the frame rate, and when scaling) feeds GPU
-  frames straight into the hardware encoder. Audio comes from WASAPI process
-  loopback. Windows can leave only one process tree out of a capture, so *Desktop* is everything except the chat
-  app (or the music app), and with both running, the music app's sound is subtracted from it sample for sample:
-  captured at the output's own rate, an app's samples are identical in every capture, and the exact offset between
-  two captures is found by matching the app's sound in both (then checked as it goes on). Desktop is then converted to
-  48 kHz like the other tracks. *Chat* and *Music* capture only their apps' own processes; an app one of them started
-  (part of its process tree) is captured onto *Desktop* instead. *Mic* is the microphone. Every stream is timestamped on the same clock and kept as encoded packets in a RAM ring buffer; saving
+  frames straight into the hardware encoder. Audio comes from WASAPI process loopback: *Desktop* is everything but
+  QuickClip's own previews, *Mic* each microphone. (Voice chat and music on tracks of their own, off for now, take
+  them out of Desktop: Windows can leave only one app out of a capture, so with both, the music app's sound is
+  subtracted sample for sample, captured at the output's own rate where an app's samples are identical in every
+  capture, at an offset found by matching them.) Every stream is timestamped on the same clock and kept as encoded packets in a RAM ring buffer; saving
   writes the packets from the last keyframe before the start point into an MP4 with named tracks.
 - **Player and preview** use [libmpv](https://mpv.io) embedded in a native child window; the tracks are merged by mpv's
   `lavfi-complex` and remixed per track by a volume filter that the sliders adjust live. An added sound is previewed

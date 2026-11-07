@@ -115,10 +115,11 @@ internal sealed class Recorder
             VideoKbps = RecordingPresets.VideoKbps(s.RecordQuality, w, h, s.RecordFps, family);
             var mics = s.RecordMic ? Microphones.Plan(s.MicDeviceIds, CaptureEngine.EnumMicrophones()) : [];
             bool separateMics = s.SeparateMicTracks && mics.Count > 1;
-            AudioTracks = 1 + (s.SplitChatAudio ? 1 : 0) + (s.SplitMusicAudio ? 1 : 0) + (separateMics ? mics.Count : Math.Min(mics.Count, 1));
+            bool splitChat = RecordingPresets.SplitChat(s), splitMusic = RecordingPresets.SplitMusic(s);
+            AudioTracks = 1 + (splitChat ? 1 : 0) + (splitMusic ? 1 : 0) + (separateMics ? mics.Count : Math.Min(mics.Count, 1));
 
             Error = CaptureEngine.Start(monitor.DeviceName, aspect, s.RecordFps, scaled ? w : 0, scaled ? h : 0, encoder, VideoKbps,
-                RecordingPresets.AudioKbps, s.BufferSeconds, s.CaptureCursor, s.SplitChatAudio, s.SplitMusicAudio, mics, separateMics);
+                RecordingPresets.AudioKbps, s.BufferSeconds, s.CaptureCursor, splitChat, splitMusic, mics, separateMics);
             if (Error != null) return;
             if (mics.Count > 0)
                 Log.Write($"Recording {mics.Count} microphone{(mics.Count == 1 ? "" : "s")}{(separateMics ? " on separate tracks" : "")}: " +
@@ -160,8 +161,8 @@ internal sealed class Recorder
             var processes = ProcessScan.Snapshot();
             var chat = ChatApps.Find(processes);
             var music = MusicApps.Find(processes);
-            List<uint> chatPids = s.SplitChatAudio ? [.. chat.Select(c => c.Pid)] : [];
-            List<uint> musicPids = s.SplitMusicAudio ? [.. music.Select(m => m.Pid)] : [];
+            List<uint> chatPids = RecordingPresets.SplitChat(s) ? [.. chat.Select(c => c.Pid)] : [];
+            List<uint> musicPids = RecordingPresets.SplitMusic(s) ? [.. music.Select(m => m.Pid)] : [];
             var plan = PlanAudio(processes, chatPids, musicPids);
             CaptureEngine.SetAudioProcesses(plan);
             LogRouting(processes, plan);

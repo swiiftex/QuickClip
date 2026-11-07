@@ -11,6 +11,12 @@ namespace QuickClip.Recording;
 internal static class AudioRouting
 {
     /// <summary>
+    /// Voice chat and music on tracks of their own. Off until taking them out of Desktop is ready: Desktop then records
+    /// everything but QuickClip's own previews, and there are no Chat or Music tracks.
+    /// </summary>
+    public static readonly bool SeparateTracks = false;
+
+    /// <summary>
     /// Desktop records everything except <paramref name="Exclude"/> (nothing is left out when that is 0) plus
     /// <paramref name="Desktop"/>; Chat and Music record theirs. Each process comes with the ones it started.
     /// </summary>
