@@ -134,6 +134,10 @@ public partial class MainWindow
                 _editor.RevertForRender();
                 await Task.Delay(300);
                 report.AppendLine($"editor reverted: {_editor.EncodingForRender}");
+                // A trim alone, starting between keyframes: copied from the keyframe before.
+                _editor.SetInForRender(2.5);
+                await Task.Delay(300);
+                report.AppendLine($"editor trimmed to 2.5 s: {_editor.EncodingForRender} | {_editor.SummaryForRender}");
             }
 
             // Save over the clip (trimmed), then undo that.

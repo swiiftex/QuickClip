@@ -55,8 +55,9 @@ and lets you trim, crop and remix the audio tracks before sharing.
   waveform per track, trims frame-accurately, crops with aspect presets, and exports as a new file or over the
   original. Its settings are in four groups, each closed until you open it and showing what it's set to: **Crop**
   (C opens it), **Frame rate**, **Encoding** and **Output**. Everything starts at "same as original", and then the
-  video is copied as it is: quick, with nothing lost. Anything that needs it re-encoded (a crop, a new size, frame
-  rate, encoder or quality, or a start trimmed between keyframes) switches to that by itself, and **Encoding** says
+  video is copied as it is: quick, with nothing lost. A trim alone is copied too, from the keyframe at or before the
+  in point (QuickClip's recordings have one every second, so at most a second earlier). Anything that needs it
+  re-encoded (a crop, a new size, frame rate, encoder or quality) switches to that by itself, and **Encoding** says
   why. Tracks can be kept separate or merged into one (**Merge all audio tracks into one** under Output, which
   asks first, and warns before saving over the original that way). After **Save over original**, **Undo** (Ctrl+Z)
   puts the clip back as it was, from the Recycle Bin, and sends the edited version there instead. The preview volume

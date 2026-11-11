@@ -136,8 +136,10 @@ public sealed class ExportTests(MediaFixture media)
         Assert.Null(ExportBuilder.ReencodeReason(r with { Start = 2 }, false, keys));            // on a keyframe
         Assert.Null(ExportBuilder.ReencodeReason(r with { Container = Containers.Mkv }, false, keys));
         Assert.Null(ExportBuilder.ReencodeReason(r with { MaxShortSide = 1080, Fps = 60 }, false, keys)); // no smaller or slower
-        Assert.Contains("keyframe", ExportBuilder.ReencodeReason(r with { Start = 2.5 }, false, keys));
+        Assert.Null(ExportBuilder.ReencodeReason(r with { Start = 2.5 }, false, keys));          // copied from the keyframe at 2 s
+        Assert.Equal(2.0, ExportBuilder.KeyframeBefore(keys, 2.5, 30));
         Assert.Contains("keyframe", ExportBuilder.ReencodeReason(r with { Start = 2 }, false, null)); // not known yet
+        Assert.Contains("keyframe", ExportBuilder.ReencodeReason(r with { Start = 2.5 }, false, [0.0])); // too far back
         Assert.Contains("cropped", ExportBuilder.ReencodeReason(r with { Crop = (0, 0, 320, 180) }, false, keys));
         Assert.Contains("resolution", ExportBuilder.ReencodeReason(r with { MaxShortSide = 240 }, false, keys));
         Assert.Contains("frame rate", ExportBuilder.ReencodeReason(r with { Fps = 15 }, false, keys));
