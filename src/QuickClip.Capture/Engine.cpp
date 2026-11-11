@@ -121,6 +121,7 @@ namespace qc
         struct MonitorTarget
         {
             int adapter = -1, output = -1;
+            UINT vendor = 0;                       // the monitor's graphics card maker (PCI vendor id)
             uint64_t hmonitor = 0;
             int width = 0, height = 0;
         };
@@ -133,6 +134,8 @@ namespace qc
             IDXGIAdapter1* adapter = nullptr;
             for (UINT a = 0; !found && factory->EnumAdapters1(a, &adapter) != DXGI_ERROR_NOT_FOUND; a++)
             {
+                DXGI_ADAPTER_DESC1 ad{};
+                adapter->GetDesc1(&ad);
                 IDXGIOutput* output = nullptr;
                 for (UINT o = 0; !found && adapter->EnumOutputs(o, &output) != DXGI_ERROR_NOT_FOUND; o++)
                 {
@@ -145,6 +148,7 @@ namespace qc
                     {
                         target.adapter = static_cast<int>(a);
                         target.output = static_cast<int>(o);
+                        target.vendor = ad.VendorId;
                         target.hmonitor = reinterpret_cast<uint64_t>(od.Monitor);
                         target.width = od.DesktopCoordinates.right - od.DesktopCoordinates.left;
                         target.height = od.DesktopCoordinates.bottom - od.DesktopCoordinates.top;
@@ -155,6 +159,16 @@ namespace qc
             }
             factory->Release();
             return found;
+        }
+
+        /// The maker (PCI vendor id) of the graphics card whose own encoder this is; 0 for encoders that aren't given
+        /// a card's frames (the CPU's, and Windows' Media Foundation, which takes them from system memory).
+        UINT EncoderVendor(const std::string& encoder)
+        {
+            if (encoder.ends_with("_nvenc")) return 0x10DE;
+            if (encoder.ends_with("_amf")) return 0x1002;
+            if (encoder.ends_with("_qsv")) return 0x8086;
+            return 0;
         }
 
         struct Area
@@ -286,13 +300,20 @@ namespace qc
                 sink = nullptr;
             }
 
+            /// The format frames go to the encoder in from system memory, or null to keep them on the graphics card.
             /// The graphics card's encoder through Windows (Media Foundation) takes NV12 pictures only, and converting on
             /// the graphics card can't be relied on (scale_d3d11 fails on some drivers): those frames are copied back
             /// and converted on the CPU, which costs about a core at 1440p60. It's only for when the card's own route
-            /// can't be used.
-            static bool NeedsSystemFrames(const Engine::Shared& s) { return s.encoder.ends_with("_mf"); }
+            /// can't be used. A card's own encoder can't take frames captured on another card (`otherCard`) either, and
+            /// gets them through memory too: as captured for NVENC and AMF, which convert BGRA themselves.
+            static const char* SystemFormat(const Engine::Shared& s, bool otherCard)
+            {
+                if (s.encoder.ends_with("_mf")) return "nv12";
+                if (!otherCard) return nullptr;
+                return s.encoder.ends_with("_qsv") ? "nv12" : "bgra";
+            }
 
-            bool TryBuild(const char* source, const std::string& args, AVBufferRef* device, bool systemFrames, std::string& error)
+            bool TryBuild(const char* source, const std::string& args, AVBufferRef* device, const char* systemFormat, std::string& error)
             {
                 avfilter_graph_free(&graph);
                 graph = avfilter_graph_alloc();
@@ -301,13 +322,15 @@ namespace qc
                 src->hw_device_ctx = av_buffer_ref(device);
                 int ret = avfilter_init_str(src, args.c_str());
                 AVFilterContext* last = src;
-                if (ret >= 0 && systemFrames)
+                if (ret >= 0 && systemFormat)
                 {
                     graph->scale_sws_opts = av_strdup("threads=0");
                     const char* chain[][3] = { { "hwdownload", "download", nullptr }, { "format", "bgra", "pix_fmts=bgra" },
                                                { "format", "nv12", "pix_fmts=nv12" } };
-                    for (const auto& [filter, name, filterArgs] : chain)
+                    size_t steps = std::string_view(systemFormat) == "nv12" ? 3 : 2; // captured frames are BGRA already
+                    for (size_t i = 0; i < steps; i++)
                     {
+                        auto [filter, name, filterArgs] = chain[i];
                         AVFilterContext* f = avfilter_graph_alloc_filter(graph, avfilter_get_by_name(filter), name);
                         ret = f ? avfilter_init_str(f, filterArgs) : AVERROR(ENOMEM);
                         if (ret >= 0) ret = avfilter_link(last, 0, f, 0);
@@ -332,7 +355,8 @@ namespace qc
                 return true;
             }
 
-            bool Build(const Engine::Shared& s, const MonitorTarget& m, const Area& a, AVBufferRef* device, std::string& error)
+            bool Build(const Engine::Shared& s, const MonitorTarget& m, const Area& a, AVBufferRef* device, const char* system,
+                std::string& error)
             {
                 bool scaled = s.outWidth > 0 && (s.outWidth != a.width || s.outHeight != a.height);
                 // Both sources crop on the GPU: Desktop Duplication copies just that rectangle, Graphics Capture
@@ -349,7 +373,6 @@ namespace qc
                 // can't hand frames over much faster than 60 fps (about 75 of 120). Windows Graphics Capture scales on
                 // the GPU and keeps up at 120 fps and more. Each is the other's fallback.
                 bool preferGraphics = scaled || s.fps > 60;
-                bool system = NeedsSystemFrames(s);
                 std::string first, second;
                 fallback = false;
                 if (!preferGraphics && TryBuild("ddagrab", dda, device, system, first)) { duplication = true; return true; }
@@ -373,14 +396,15 @@ namespace qc
 
             /// Just the window, wherever it is and whatever is in front of it (overlay windows, notifications); if
             /// its size changes it's scaled to the size it started at, keeping its shape.
-            bool BuildWindow(const Engine::Shared& s, HWND window, int width, int height, AVBufferRef* device, std::string& error)
+            bool BuildWindow(const Engine::Shared& s, HWND window, int width, int height, AVBufferRef* device, const char* system,
+                std::string& error)
             {
                 char wgc[256];
                 snprintf(wgc, sizeof wgc, "hwnd=%llu:max_framerate=%d:capture_cursor=%d:width=%d:height=%d:resize_mode=scale_aspect",
                     static_cast<unsigned long long>(reinterpret_cast<uintptr_t>(window)), s.fps, s.cursor ? 1 : 0, width, height);
                 fallback = false;
                 duplication = false;
-                return TryBuild("gfxcapture", wgc, device, NeedsSystemFrames(s), error);
+                return TryBuild("gfxcapture", wgc, device, system, error);
             }
 
             bool OpenEncoder(const Engine::Shared& s, int videoKbps, std::string& error)
@@ -505,9 +529,16 @@ namespace qc
                         ok = FindMonitor(s->monitorDevice, monitor);
                         if (!ok) error = "The selected monitor wasn't found.";
                     }
+                    // Laptops often wire the screen to the integrated graphics while the encoder is on the other card,
+                    // which can't take the first card's frames ("no encode device"): they're copied to it through
+                    // memory then, about half a core at 1600p60. (Graphics Capture can hand the picture to the other
+                    // card itself, but only at about 30 fps.)
+                    bool otherCard = false;
                     if (ok)
                     {
                         area = CenterArea(monitor.width, monitor.height, s->aspectWidth, s->aspectHeight);
+                        UINT vendor = EncoderVendor(s->encoder);
+                        otherCard = vendor && monitor.vendor != vendor;
                         int ret = av_hwdevice_ctx_create(&device, AV_HWDEVICE_TYPE_D3D11VA, std::to_string(monitor.adapter).c_str(), nullptr, 0);
                         if (ret < 0)
                         {
@@ -515,7 +546,8 @@ namespace qc
                             error = "Couldn't open the graphics card: " + AvError(ret);
                         }
                     }
-                    if (window && ok && !pipe.BuildWindow(*s, window, windowWidth, windowHeight, device, error))
+                    const char* system = VideoPipe::SystemFormat(*s, otherCard);
+                    if (window && ok && !pipe.BuildWindow(*s, window, windowWidth, windowHeight, device, system, error))
                     {
                         // Record the monitor instead until the window changes.
                         Log("recording the game window failed (%s); recording the monitor", error.c_str());
@@ -526,7 +558,7 @@ namespace qc
                         closeCapture();
                         continue;
                     }
-                    if (!window) ok = ok && pipe.Build(*s, monitor, area, device, error);
+                    if (!window) ok = ok && pipe.Build(*s, monitor, area, device, system, error);
                     // Desktop Duplication is refused while an older capture thread still holds it; that one usually
                     // lets go within moments, so try again briefly before settling for Graphics Capture.
                     if (ok && pipe.fallback && duplicationBusy < 3 && current())
@@ -577,11 +609,14 @@ namespace qc
                     s->lastFrameUs = NowUs(); // the watchdog counts from here until the first frame
                     sourceBase = av_buffersink_get_time_base(pipe.sink);
                     sourceOffsetUs = INT64_MIN;
+                    const char* card = otherCard ? ", copying frames to the encoder's graphics card" : "";
                     if (window)
-                        Log("capturing the game window at %dx%d with %s via graphics capture", pipe.encoder->width, pipe.encoder->height, s->encoder.c_str());
+                        Log("capturing the game window at %dx%d with %s via graphics capture%s", pipe.encoder->width, pipe.encoder->height,
+                            s->encoder.c_str(), card);
                     else
-                        Log("capturing %dx%d at %d,%d of a %dx%d monitor with %s via %s", pipe.encoder->width, pipe.encoder->height,
-                            area.x, area.y, monitor.width, monitor.height, s->encoder.c_str(), pipe.duplication ? "desktop duplication" : "graphics capture");
+                        Log("capturing %dx%d at %d,%d of a %dx%d monitor with %s via %s%s", pipe.encoder->width, pipe.encoder->height,
+                            area.x, area.y, monitor.width, monitor.height, s->encoder.c_str(),
+                            pipe.duplication ? "desktop duplication" : "graphics capture", card);
                     if (reportStart)
                     {
                         reportStart = false;

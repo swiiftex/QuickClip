@@ -22,7 +22,9 @@ and lets you trim, crop and remix the audio tracks before sharing.
 - **GPU encoding**, newest codec first: AV1 on NVIDIA/AMD/Intel cards that support it, then HEVC, then H.264.
   Capture and encoding stay on the GPU (about 2% of one CPU core while recording). Cards whose own route doesn't
   work record through Windows' Media Foundation encoder instead, at the cost of about a CPU core: FFmpeg's NVENC
-  needs NVIDIA driver 610 or newer, which GTX 900 and 10 series cards don't get.
+  needs NVIDIA driver 610 or newer, which GTX 900 and 10 series cards don't get. On laptops whose screen is on the
+  integrated graphics, frames for the other card's encoder are copied over through memory (about half to
+  two-thirds of a core at 1600p60).
 - **Hotkey** of your choice (default Alt+F10), tray icon, start with Windows, minimize/close to tray.
 - **Game detection**: clips go in a folder per game (from Windows' game list, the Steam/Epic/Riot/GOG/EA/Ubisoft/Xbox
   install folder, or a fullscreen window); anything else goes in *Desktop*.
@@ -152,7 +154,8 @@ Settings live in `%APPDATA%\QuickClip`, thumbnails and the log in `%LOCALAPPDATA
 
 - **Recording engine** (`src/QuickClip.Capture`, C++): FFmpeg's Desktop Duplication source (Windows Graphics
   Capture above 60 fps, where Desktop Duplication can fall well short of the frame rate, and when scaling) feeds GPU
-  frames straight into the hardware encoder. Audio comes from WASAPI process loopback: *Desktop* is everything but
+  frames straight into the hardware encoder, or through system memory when the encoder is on another graphics card
+  than the monitor (Graphics Capture can hand frames across cards itself, but at only about 30 fps). Audio comes from WASAPI process loopback: *Desktop* is everything but
   QuickClip's own previews, *Mic* each microphone. (Voice chat and music on tracks of their own, off for now, take
   them out of Desktop: Windows can leave only one app out of a capture, so with both, the music app's sound is
   subtracted sample for sample, captured at the output's own rate where an app's samples are identical in every
