@@ -1305,7 +1305,7 @@ public partial class EditorView : UserControl
             }
             size = $"{w}×{h}";
             parts.Add(size + (crop != null ? " (cropped)" : ""));
-            if (copy) parts.Add("video copied");
+            if (copy) parts.Add(_timeline.In - request.Start > 0.005 ? $"video copied from {_timeline.In - request.Start:0.00} s earlier" : "video copied");
             else if ((FpsCombo.SelectedItem as Choice)?.Value is SmoothFps) parts.Add("smooth 60 fps");
         }
         int audio = c.IsGif ? 0 : _tracks.Count(t => t.Include);
@@ -1352,8 +1352,10 @@ public partial class EditorView : UserControl
         else if (request.VideoMode == VideoMode.Copy)
         {
             EncodingHeaderText.Text = "Video copied as it is";
-            EncodingHint.Text = "The video is copied as it is: quick, with nothing lost. Anything that needs it re-encoded " +
-                                "(a crop, a new size, frame rate, encoder or quality, or trimming the start between keyframes) does that by itself.";
+            double lead = _timeline.In - request.Start;
+            EncodingHint.Text = "The video is copied as it is: quick, with nothing lost." +
+                                (lead > 0.005 ? $" It starts at the keyframe {lead:0.00} s before the in point, as a copy has to start on one." : "") +
+                                " Anything that needs it re-encoded (a crop, a new size, frame rate, encoder or quality) does that by itself.";
         }
         else
         {
@@ -1409,7 +1411,7 @@ public partial class EditorView : UserControl
         if (videoOut && ExportBuilder.ReencodeReason(request, chosenEncoder.Length > 0, _keyframes) == null)
         {
             // A copy begins exactly on the keyframe the start was matched to.
-            double start = _keyframes != null && ExportBuilder.KeyframeAt(_keyframes, request.Start, _media.Video!.Fps) is { } k ? k : request.Start;
+            double start = _keyframes != null && ExportBuilder.KeyframeBefore(_keyframes, request.Start, _media.Video!.Fps) is { } k ? k : request.Start;
             return request with { VideoMode = VideoMode.Copy, Start = start };
         }
         return request with { EncoderId = chosenEncoder.Length > 0 ? chosenEncoder : SameCodecEncoder(container) };
@@ -1692,6 +1694,8 @@ public partial class EditorView : UserControl
     internal void SelectQualityForRender(string quality) => Select(QualityCombo, quality);
     internal void SelectFormatForRender(string format) => Select(FormatCombo, format);
     internal void RevertForRender() => Revert_Click(this, new RoutedEventArgs());
+    internal void SetInForRender(double t) => _timeline.SetIn(t);
+    internal string SummaryForRender => SummaryText.Text;
     internal string EncodingForRender => $"{EncodingHeaderText.Text} | revert shown: {RevertPanel.Visibility == Visibility.Visible}";
     internal void ExpandOptionsForRender()
     {

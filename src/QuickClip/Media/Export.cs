@@ -254,6 +254,10 @@ internal static class ExportBuilder
         _ => codec.ToUpperInvariant(),
     };
 
+    /// <summary>A copy starts on the keyframe at or before the in point, so up to this much earlier (QuickClip's own
+    /// recordings have a keyframe every second); a video whose keyframes are further apart is re-encoded instead.</summary>
+    public const double MaxCopyLeadIn = 2.0;
+
     /// <summary>
     /// Why the video has to be re-encoded rather than copied as it is, or null when a copy gives what's asked for.
     /// <paramref name="encoderChosen"/>: an encoder was picked rather than keeping the original's codec.
@@ -271,18 +275,24 @@ internal static class ExportBuilder
         if (r.Quality != "original") return "a quality is chosen";
         if (encoderChosen) return "an encoder is chosen";
         if (!c.CanCopyVideo(v.Codec)) return $"{c.Extension.TrimStart('.').ToUpperInvariant()} can't hold {CodecName(v.Codec)} video as it is";
-        if (r.Start > 0.0005 && (keyframes == null || KeyframeAt(keyframes, r.Start, v.Fps) == null))
-            return "the clip starts between keyframes, and a copy would have to start on one";
+        if (r.Start > 0.0005)
+        {
+            if (keyframes == null) return "its keyframes, where a copy has to start, are still being found";
+            if (KeyframeBefore(keyframes, r.Start, v.Fps) is not { } k || r.Start - k > MaxCopyLeadIn)
+                return $"its keyframes, where a copy has to start, are more than {MaxCopyLeadIn:0} s apart";
+        }
         return null;
     }
 
-    /// <summary>The keyframe within half a frame of <paramref name="time"/>, if there is one.</summary>
-    public static double? KeyframeAt(IReadOnlyList<double> keyframes, double time, double fps)
+    /// <summary>The last keyframe at or before <paramref name="time"/> (give or take half a frame), if there is one.</summary>
+    public static double? KeyframeBefore(IReadOnlyList<double> keyframes, double time, double fps)
     {
         double tolerance = 0.5 / (fps > 0 ? fps : 30);
+        double? found = null;
         foreach (double k in keyframes)
-            if (Math.Abs(k - time) <= tolerance) return k;
-        return null;
+            if (k <= time + tolerance) found = k;
+            else break;
+        return found;
     }
 
     /// <summary>Encoder and rate-control arguments for a quality setting ("size" and "original" leave the bitrate to the caller).</summary>
