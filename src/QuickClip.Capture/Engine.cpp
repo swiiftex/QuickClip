@@ -839,17 +839,12 @@ namespace qc
         }
         for (size_t i = 0; i < channels_.size(); i++)
         {
-            // Everything played on the output, less QuickClip's own sound (its previews and the clip-saved sound), at
-            // the output's own rate, where QuickClip's sound is the same in both captures.
+            // Everything played on the output, at its own rate.
             Channel& channel = channels_[i];
             int rate = OutputRate(channel.deviceId);
             auto& mixer = *tracks_[static_cast<size_t>(channelTracks[i])]->mixer;
-            channel.canceller = std::make_unique<Canceller>(rate, std::make_unique<MixerSink>(mixer, rate), channel.title);
             channel.output = std::make_unique<AudioSource>(SourceKind::Output, 0, channel.deviceId, rate,
-                std::make_unique<TeeSink>(nullptr, &channel.canceller->Everything()));
-            if (PerAppCaptureAvailable())
-                channel.self = std::make_unique<AudioSource>(SourceKind::ProcessInclude, GetCurrentProcessId(), L"", rate,
-                    std::make_unique<TeeSink>(nullptr, &channel.canceller->Reference(GetCurrentProcessId())));
+                std::make_unique<MixerSink>(mixer, rate));
             Log("recording the output \"%s\" at %d Hz on a track of its own", channel.title.c_str(), rate);
         }
         for (size_t i = 0; i < mics_.size(); i++)
@@ -939,13 +934,8 @@ namespace qc
             sources_.clear();
         }
         micSources_.clear();
-        for (auto& channel : channels_)
-        {
-            channel.output.reset();
-            channel.self.reset();
-        }
-        channels_.clear();      // the cancellers after the sources that feed them
-        canceller_.reset();
+        channels_.clear();
+        canceller_.reset(); // after the sources that feed it
         // A capture call returns with the next frame; with a frozen screen that may take a while.
         for (int i = 0; i < 150 && shared_->runningVideoThreads > 0; i++) Sleep(20);
         if (videoThread_.joinable())
@@ -1015,14 +1005,6 @@ namespace qc
         }
     }
 
-    int64_t Engine::TestSubtractOffset(DWORD pid)
-    {
-        if (canceller_) return canceller_->OffsetOf(pid);
-        for (auto& channel : channels_)
-            if (int64_t offset = channel.canceller->OffsetOf(pid); offset != INT64_MIN) return offset;
-        return INT64_MIN;
-    }
-
     void Engine::AudioLoop()
     {
         std::vector<float> samples;
@@ -1031,7 +1013,6 @@ namespace qc
         {
             Sleep(20);
             if (canceller_) canceller_->Process();
-            for (auto& channel : channels_) channel.canceller->Process();
             int64_t upTo = (NowUs() - shared_->t0) * SampleRate / 1000000 - latency;
             for (size_t i = 0; i < tracks_.size(); i++)
             {

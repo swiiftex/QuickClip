@@ -178,6 +178,10 @@ internal static class CaptureEngine
     /// <summary>Tests: plays quiet noise from this process for a while (returns at once).</summary>
     internal static void TestPlayNoise(int milliseconds, float amplitude) => qc_test_play_noise(milliseconds, amplitude);
 
+    /// <summary>Tests: plays a tone from this process on an output for a while (returns at once).</summary>
+    internal static void TestPlayTone(string deviceId, int milliseconds, float amplitude, double hz) =>
+        qc_test_play_tone(deviceId, milliseconds, amplitude, hz);
+
     /// <summary>Which apps each track records; see <see cref="AudioRouting"/>.</summary>
     public static void SetAudioProcesses(AudioRouting.Plan plan) =>
         qc_set_audio_processes(plan.Exclude, [.. plan.Desktop], plan.Desktop.Count, [.. plan.Chat], plan.Chat.Count, [.. plan.Music], plan.Music.Count,
@@ -210,6 +214,7 @@ internal static class CaptureEngine
         uint[] chat, int chatCount, uint[] music, int musicCount, uint[] subtract, int subtractCount);
     [DllImport(Dll)] private static extern long qc_test_subtract_offset(uint pid);
     [DllImport(Dll)] private static extern void qc_test_play_noise(int milliseconds, float amplitude);
+    [DllImport(Dll, CharSet = CharSet.Unicode)] private static extern void qc_test_play_tone(string deviceId, int milliseconds, float amplitude, double hz);
     [DllImport(Dll, CharSet = CharSet.Unicode)] private static extern int qc_save(string path, int seconds, string title, [Out] char[] error, int errorLength);
     [DllImport(Dll)] private static extern int qc_get_stats(out Stats stats);
 }

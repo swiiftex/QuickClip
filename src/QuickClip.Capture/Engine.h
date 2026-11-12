@@ -123,9 +123,8 @@ namespace qc
         void TestFreezeVideo(int ms);
         /// Tests: counts keyframes smaller than this as a flat picture (0 = the normal limit).
         void TestFlatBelow(int bytes);
-        /// Tests: where a subtracted process's sound was found in Desktop's capture (or the first channel's it's
-        /// found in), or INT64_MIN while it isn't.
-        int64_t TestSubtractOffset(DWORD pid);
+        /// Tests: where a subtracted process's sound was found in Desktop's capture, or INT64_MIN while it isn't.
+        int64_t TestSubtractOffset(DWORD pid) { return canceller_ ? canceller_->OffsetOf(pid) : INT64_MIN; }
 
         struct Shared;
 
@@ -147,13 +146,13 @@ namespace qc
         std::vector<Mic> mics_;
 
         // Outputs recorded each on a track of its own in place of Desktop, Chat and Music: SteelSeries Sonar's
-        // channels, which it mixes together for the headset. QuickClip's own sound is taken out of each.
+        // channels, which it mixes together for the headset. Everything played on one is recorded, QuickClip's own
+        // previews included.
         struct Channel
         {
             std::wstring deviceId;
             std::string title;
-            std::unique_ptr<Canceller> canceller;
-            std::unique_ptr<AudioSource> output, self; // what plays on the output; QuickClip's own sound
+            std::unique_ptr<AudioSource> output;
         };
         std::vector<Channel> channels_;
 

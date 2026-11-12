@@ -170,13 +170,14 @@ public sealed class CaptureEngineTests(MediaFixture media, Xunit.Abstractions.IT
     }
 
     /// <summary>
-    /// With SteelSeries Sonar on, each of its channels is recorded on a track of its own in place of Desktop, less
-    /// QuickClip's own sound. This test plays noise at -80 dB (too quiet to hear) on Windows' default output, one of
-    /// Sonar's channels, as QuickClip's previews would: it has to be found in that channel's capture, to be taken out.
-    /// Runs only where Windows plays through Sonar.
+    /// With SteelSeries Sonar on, each of its channels is recorded on a track of its own in place of Desktop. This test
+    /// plays a quiet tone (-54 dB) on each channel's output, a different pitch on each: every track has to have its own
+    /// channel's tone at the level it was played (Game and Media are 7.1 outputs, mixed down to stereo), and not the
+    /// others'. Each tone is measured at its exact pitch, which other sound playing on the PC hardly touches. Runs only
+    /// where Windows plays through Sonar.
     /// </summary>
     [Fact]
-    public async Task Sonars_channels_record_on_their_own_tracks_less_QuickClips_sound()
+    public async Task Sonars_channels_each_record_on_their_own_track()
     {
         if (!CaptureEngine.IsAvailable) return;
         CaptureEngine.Initialize();
@@ -184,28 +185,22 @@ public sealed class CaptureEngineTests(MediaFixture media, Xunit.Abstractions.IT
         var encoder = RecordingPresets.DefaultEncoder(await VideoEncoders.GetAvailableAsync());
         var monitor = Monitors.List().FirstOrDefault(m => m.IsPrimary);
         if (channels.Count == 0 || encoder == null || monitor == null) return;
-        output.WriteLine("Sonar's channels: " + string.Join(", ", channels.Select(c => c.Title)));
+        int[] tones = [.. channels.Select((_, i) => 431 + 617 * i)];
+        const float amplitude = 0.002f;
 
-        uint self = (uint)Environment.ProcessId;
         var area = RecordingPresets.Area(monitor.Width, monitor.Height, "16:9");
         // Chat and Music asked for too: Sonar's channels take their place.
         Assert.Null(CaptureEngine.Start(monitor.DeviceName, "16:9", 30, 0, 0, encoder.Id,
             RecordingPresets.VideoKbps(RecordingQuality.Low, area.Width, area.Height, 30, encoder.Family), RecordingPresets.AudioKbps,
             bufferSeconds: 10, cursor: true, splitChat: true, splitMusic: true, mics: [new("", "Mic")], separateMics: false, channels));
         string clip = media.Out("engine-sonar.mp4");
-        long? offset = null;
         try
         {
             // Asking for Desktop's apps changes nothing: Sonar's channels are recorded whichever apps play on them.
-            CaptureEngine.SetAudioProcesses(new AudioRouting.Plan(self, [], [], []));
-            CaptureEngine.TestPlayNoise(15000, 1e-4f);
-            for (int i = 0; i < 100 && offset == null; i++)
-            {
-                await Task.Delay(100);
-                offset = CaptureEngine.TestSubtractOffset(self);
-            }
-            await Task.Delay(2500);
-            Assert.Null(await Task.Run(() => CaptureEngine.Save(clip, 2, "Test")));
+            CaptureEngine.SetAudioProcesses(new AudioRouting.Plan((uint)Environment.ProcessId, [], [], []));
+            for (int i = 0; i < channels.Count; i++) CaptureEngine.TestPlayTone(channels[i].DeviceId, 6000, amplitude, tones[i]);
+            await Task.Delay(4500);
+            Assert.Null(await Task.Run(() => CaptureEngine.Save(clip, 3, "Test")));
         }
         finally
         {
@@ -213,10 +208,51 @@ public sealed class CaptureEngineTests(MediaFixture media, Xunit.Abstractions.IT
         }
 
         var info = await MediaInfo.ProbeAsync(clip);
-        File.Delete(clip);
         Assert.Equal([.. channels.Select(c => c.Title), "Mic"], info.Audio.Select(a => a.DisplayName));
-        Assert.NotNull(offset);
-        output.WriteLine($"QuickClip's sound found in its channel at offset {offset}");
+        // Each track's amplitude at each tone's pitch, over two seconds (the tones were playing all along).
+        // Other sound playing on the PC has a little at any pitch; what's around each tone's pitch says how much.
+        var levels = new double[channels.Count, channels.Count];
+        var around = new double[channels.Count, channels.Count];
+        for (int track = 0; track < channels.Count; track++)
+        {
+            var pcm = await Pcm(clip, track);
+            int from = Math.Max(0, pcm.Length - 48000 * 5 / 2);
+            for (int tone = 0; tone < channels.Count; tone++)
+            {
+                levels[track, tone] = ToneAmplitude(pcm, from, 2 * 48000, tones[tone]);
+                around[track, tone] = new[] { -6, -4, -3, 3, 4, 6 }.Max(d => ToneAmplitude(pcm, from, 2 * 48000, tones[tone] + d));
+            }
+        }
+        File.Delete(clip);
+        static string Db(double a) => $"{20 * Math.Log10(Math.Max(a, 1e-9)),6:0.0} dB";
+        output.WriteLine($"played at {Db(amplitude)}");
+        for (int track = 0; track < channels.Count; track++)
+            output.WriteLine($"{channels[track].Title,-6} " + string.Join("  ", Enumerable.Range(0, channels.Count).Select(t => $"{tones[t]} Hz {Db(levels[track, t])}")));
+        for (int track = 0; track < channels.Count; track++)
+        {
+            Assert.True(levels[track, track] > amplitude / 2 && levels[track, track] < amplitude * 2,
+                $"{channels[track].Title}'s tone is at {Db(levels[track, track])} on its track, played at {Db(amplitude)}");
+            // On the other tracks, it mustn't stand out from what's around its pitch there.
+            for (int other = 0; other < channels.Count; other++)
+                if (other != track)
+                    Assert.True(levels[other, track] < Math.Max(amplitude / 30, 4 * around[other, track]),
+                        $"{channels[track].Title}'s tone is on {channels[other].Title}'s track too " +
+                        $"({Db(levels[other, track])}, with {Db(around[other, track])} around it)");
+        }
+    }
+
+    /// <summary>The amplitude of a tone at <paramref name="hz"/> in <paramref name="count"/> samples (48 kHz) from
+    /// <paramref name="from"/>: a single frequency over a couple of seconds, which broadband sound barely reaches.</summary>
+    private static double ToneAmplitude(float[] pcm, int from, int count, double hz)
+    {
+        count = Math.Min(count, pcm.Length - from);
+        double re = 0, im = 0, step = 2 * Math.PI * hz / 48000;
+        for (int i = 0; i < count; i++)
+        {
+            re += pcm[from + i] * Math.Cos(step * i);
+            im -= pcm[from + i] * Math.Sin(step * i);
+        }
+        return 2 * Math.Sqrt(re * re + im * im) / Math.Max(1, count);
     }
 
     private async Task<float[]> Pcm(string clip, int track)

@@ -82,11 +82,9 @@ namespace qc
     };
 
     /// Desktop as everything Windows plays (one capture) with other apps' audio taken out sample for sample, since
-    /// Windows can leave only one app out of a capture; or a SteelSeries Sonar channel (everything played on its output)
-    /// with QuickClip's own sound taken out, since an output's capture can't leave any app out. Every capture comes from
-    /// the same audio engine at the output's own rate, so an app's samples are identical in each, just at a different
-    /// offset that's found by matching the app's sound in both, and checked as it goes on. Until it's found, that app
-    /// stays in.
+    /// Windows can leave only one app out of a capture. Every capture comes from the same audio engine at the
+    /// output's own rate, so an app's samples are identical in each, just at a different offset that's found by
+    /// matching the app's sound in both, and checked as it goes on. Until it's found, that app stays in.
     class Canceller
     {
     public:
@@ -193,12 +191,14 @@ namespace qc
         int rate_;
         std::unique_ptr<AudioSink> sink_;
         bool endpointFallbackLogged_ = false;
+        bool downmixLogged_ = false;
         HANDLE stop_;
         std::thread thread_;
     };
 
-    /// Tests: plays quiet noise from this process for a while, on the default output (returns at once).
-    void PlayTestNoise(int milliseconds, float amplitude);
+    /// Tests: plays quiet noise (or a tone at `hz`) from this process for a while, on an output (the default one for an
+    /// empty id). Returns at once.
+    void PlayTestNoise(int milliseconds, float amplitude, const std::wstring& deviceId = L"", double hz = 0);
 
     /// AAC encoder for one track; turns mixed float samples into packets.
     class AudioEncoder

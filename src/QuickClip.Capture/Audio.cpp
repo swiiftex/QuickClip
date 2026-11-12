@@ -6,6 +6,7 @@
 #include <audioclientactivationparams.h>
 #include <avrt.h>
 #include <mmdeviceapi.h>
+#include <mmreg.h>
 #include <wrl/client.h>
 #include <wrl/implements.h>
 #include <algorithm>
@@ -514,6 +515,42 @@ namespace qc
             return ActivateDevice(eRender, L"", client);
         }
 
+        /// How much of each channel of a surround layout goes to the left and to the right when it's mixed down to
+        /// stereo: front left and right as they are, so stereo sound played on a surround output keeps its level; the
+        /// centre, surrounds and the rest at -3 dB on their side (both for those in the middle); LFE at -6 dB on both.
+        void DownmixGains(int channels, DWORD mask, std::vector<float>& left, std::vector<float>& right)
+        {
+            constexpr float half = 0.70710678f; // -3 dB
+            left.assign(static_cast<size_t>(channels), 0.f);
+            right.assign(static_cast<size_t>(channels), 0.f);
+            int c = 0;
+            for (DWORD bit = 1; bit != 0 && c < channels; bit <<= 1)
+            {
+                if (!(mask & bit)) continue;
+                float l = 0, r = 0;
+                switch (bit)
+                {
+                case SPEAKER_FRONT_LEFT: l = 1; break;
+                case SPEAKER_FRONT_RIGHT: r = 1; break;
+                case SPEAKER_LOW_FREQUENCY: l = r = 0.5f; break;
+                case SPEAKER_BACK_LEFT: case SPEAKER_SIDE_LEFT: case SPEAKER_FRONT_LEFT_OF_CENTER:
+                case SPEAKER_TOP_FRONT_LEFT: case SPEAKER_TOP_BACK_LEFT: l = half; break;
+                case SPEAKER_BACK_RIGHT: case SPEAKER_SIDE_RIGHT: case SPEAKER_FRONT_RIGHT_OF_CENTER:
+                case SPEAKER_TOP_FRONT_RIGHT: case SPEAKER_TOP_BACK_RIGHT: r = half; break;
+                default: l = r = c < 2 ? 1.f : half; break; // the centre, and positions in the middle
+                }
+                left[static_cast<size_t>(c)] = l;
+                right[static_cast<size_t>(c)] = r;
+                c++;
+            }
+            // Channels the layout doesn't name: the first two as left and right, any others in the middle.
+            for (; c < channels; c++)
+            {
+                left[static_cast<size_t>(c)] = c == 0 ? 1.f : c == 1 ? 0.f : half;
+                right[static_cast<size_t>(c)] = c == 1 ? 1.f : c == 0 ? 0.f : half;
+            }
+        }
+
         // Lets tests exercise the older-Windows path on a machine that has per-app capture.
         bool ProcessLoopbackDisabled()
         {
@@ -620,10 +657,33 @@ namespace qc
         format.nBlockAlign = Channels * 4;
         format.nAvgBytesPerSec = static_cast<DWORD>(rate_) * format.nBlockAlign;
 
+        // A surround output (SteelSeries Sonar's Game and Media are 7.1) is captured as it is and mixed down here:
+        // Windows' own conversion to stereo turns everything on it down by about 14 dB, stereo sound included.
+        std::vector<float> leftGain, rightGain; // per captured channel; none when it's captured as stereo
+        WAVEFORMATEX* mix = nullptr;
+        if (kind_ == SourceKind::Output && SUCCEEDED(client->GetMixFormat(&mix)) && mix)
+        {
+            auto* extensible = mix->wFormatTag == WAVE_FORMAT_EXTENSIBLE && mix->cbSize >= 22 ? reinterpret_cast<WAVEFORMATEXTENSIBLE*>(mix) : nullptr;
+            bool isFloat = mix->wFormatTag == WAVE_FORMAT_IEEE_FLOAT || (extensible && extensible->SubFormat.Data1 == WAVE_FORMAT_IEEE_FLOAT);
+            if (isFloat && mix->wBitsPerSample == 32 && mix->nChannels > 2 && static_cast<int>(mix->nSamplesPerSec) == rate_)
+            {
+                DownmixGains(mix->nChannels, extensible ? extensible->dwChannelMask : 0, leftGain, rightGain);
+                if (!downmixLogged_)
+                {
+                    Log("output %s has %d channels (layout 0x%lx); mixing them down to stereo", Narrow(deviceId_).c_str(), mix->nChannels,
+                        extensible ? static_cast<unsigned long>(extensible->dwChannelMask) : 0ul);
+                    downmixLogged_ = true;
+                }
+            }
+        }
+
         DWORD flags = AUDCLNT_STREAMFLAGS_EVENTCALLBACK | AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM | AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY;
         if (kind_ != SourceKind::Microphone) flags |= AUDCLNT_STREAMFLAGS_LOOPBACK;
-        hr = client->Initialize(AUDCLNT_SHAREMODE_SHARED, flags, 2000000 /* 200 ms */, 0, &format, nullptr);
+        hr = client->Initialize(AUDCLNT_SHAREMODE_SHARED, flags, 2000000 /* 200 ms */, 0, leftGain.empty() ? &format : mix, nullptr);
+        CoTaskMemFree(mix);
         if (FAILED(hr)) return hr;
+        const size_t channels = leftGain.size();
+        std::vector<float> stereo;
 
         ComPtr<IAudioCaptureClient> capture;
         hr = client->GetService(IID_PPV_ARGS(&capture));
@@ -657,7 +717,25 @@ namespace qc
                     ? NowUs() - static_cast<int64_t>(frames) * 1000000 / rate_
                     : static_cast<int64_t>(qpcPosition / 10);
                 bool silent = (bufferFlags & AUDCLNT_BUFFERFLAGS_SILENT) != 0;
-                sink_->Push(silent ? nullptr : reinterpret_cast<const float*>(data), frames, timeUs, first);
+                auto* samples = reinterpret_cast<const float*>(data);
+                if (!silent && channels > 0)
+                {
+                    stereo.resize(static_cast<size_t>(frames) * Channels);
+                    for (UINT32 f = 0; f < frames; f++)
+                    {
+                        const float* in = samples + static_cast<size_t>(f) * channels;
+                        float left = 0, right = 0;
+                        for (size_t c = 0; c < channels; c++)
+                        {
+                            left += in[c] * leftGain[c];
+                            right += in[c] * rightGain[c];
+                        }
+                        stereo[static_cast<size_t>(f) * 2] = left;
+                        stereo[static_cast<size_t>(f) * 2 + 1] = right;
+                    }
+                    samples = stereo.data();
+                }
+                sink_->Push(silent ? nullptr : samples, frames, timeUs, first);
                 first = false;
                 capture->ReleaseBuffer(frames);
             }
@@ -668,13 +746,13 @@ namespace qc
         return FAILED(hr) ? hr : S_OK;
     }
 
-    void PlayTestNoise(int milliseconds, float amplitude)
+    void PlayTestNoise(int milliseconds, float amplitude, const std::wstring& deviceId, double hz)
     {
-        std::thread([milliseconds, amplitude] {
+        std::thread([milliseconds, amplitude, deviceId, hz] {
             CoInitializeEx(nullptr, COINIT_MULTITHREADED);
             ComPtr<IAudioClient> client;
             WAVEFORMATEX format{ WAVE_FORMAT_IEEE_FLOAT, Channels, SampleRate, SampleRate * Channels * 4, Channels * 4, 32, 0 };
-            if (SUCCEEDED(ActivateDefaultOutput(client)) && SUCCEEDED(client->Initialize(AUDCLNT_SHAREMODE_SHARED,
+            if (SUCCEEDED(ActivateDevice(eRender, deviceId, client)) && SUCCEEDED(client->Initialize(AUDCLNT_SHAREMODE_SHARED,
                     AUDCLNT_STREAMFLAGS_EVENTCALLBACK | AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM | AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY,
                     1000000, 0, &format, nullptr)))
             {
@@ -685,12 +763,19 @@ namespace qc
                 HANDLE ready = CreateEventW(nullptr, FALSE, FALSE, nullptr);
                 client->SetEventHandle(ready);
                 uint32_t seed = 12345;
+                int64_t frame = 0;
                 auto fill = [&](UINT32 frames) {
                     BYTE* data = nullptr;
                     if (FAILED(render->GetBuffer(frames, &data))) return;
                     auto* s = reinterpret_cast<float*>(data);
                     for (UINT32 i = 0; i < frames * Channels; i++)
                     {
+                        if (hz > 0)
+                        {
+                            if (i % Channels == 0) frame++;
+                            s[i] = static_cast<float>(std::sin(6.283185307179586 * hz * static_cast<double>(frame) / SampleRate)) * amplitude;
+                            continue;
+                        }
                         seed = seed * 1664525 + 1013904223;
                         s[i] = (static_cast<float>(seed >> 8) / 8388608.0f - 1.0f) * amplitude;
                     }

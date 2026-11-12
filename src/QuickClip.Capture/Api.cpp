@@ -171,6 +171,12 @@ extern "C"
         qc::PlayTestNoise(milliseconds, amplitude);
     }
 
+    /// Tests: plays a tone at `hz` on an output for a while (returns at once).
+    __declspec(dllexport) void qc_test_play_tone(const wchar_t* deviceId, int milliseconds, float amplitude, double hz)
+    {
+        qc::PlayTestNoise(milliseconds, amplitude, deviceId ? deviceId : L"", hz);
+    }
+
     __declspec(dllexport) void qc_restart_video()
     {
         std::shared_lock guard(g_engineLock);
