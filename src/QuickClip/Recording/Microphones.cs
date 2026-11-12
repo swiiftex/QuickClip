@@ -39,7 +39,8 @@ internal static partial class Microphones
         // Windows names inputs "input (device)". Usually the input is just "Microphone" or "Line In" and the device
         // tells them apart, but a device with several inputs ("Wave Mic 3 (Elgato Virtual Audio)") names each one.
         string label = name.Trim();
-        if (NameParts().Match(label) is { Success: true } m)
+        if (Sonar.IsSonarDevice(label)) label = "Sonar"; // "SteelSeries Sonar - Microphone (SteelSeries Sonar Virtual Audio Device)"
+        else if (NameParts().Match(label) is { Success: true } m)
             label = GenericInput().IsMatch(m.Groups[1].Value) ? m.Groups[2].Value : m.Groups[1].Value;
         string title = $"Mic ({label})";
         return taken.Contains(title) ? $"Mic {number} ({label})" : title;

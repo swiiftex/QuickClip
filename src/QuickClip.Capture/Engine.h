@@ -28,6 +28,9 @@ extern "C"
         const wchar_t* const* micDeviceIds; // one per microphone, null/empty for the default microphone
         const wchar_t* const* micTitles;    // one per microphone, its track's title when each has its own
         int micSeparate;                // each microphone on its own track instead of all on one Mic track
+        int channelCount;               // outputs recorded each on a track of its own in place of Desktop, Chat and
+        const wchar_t* const* channelDeviceIds; // Music (SteelSeries Sonar's channels); 0 = none
+        const wchar_t* const* channelTitles;
     };
 
     struct QcStats
@@ -120,8 +123,9 @@ namespace qc
         void TestFreezeVideo(int ms);
         /// Tests: counts keyframes smaller than this as a flat picture (0 = the normal limit).
         void TestFlatBelow(int bytes);
-        /// Tests: where a subtracted process's sound was found in Desktop's capture, or INT64_MIN while it isn't.
-        int64_t TestSubtractOffset(DWORD pid) { return canceller_ ? canceller_->OffsetOf(pid) : INT64_MIN; }
+        /// Tests: where a subtracted process's sound was found in Desktop's capture (or the first channel's it's
+        /// found in), or INT64_MIN while it isn't.
+        int64_t TestSubtractOffset(DWORD pid);
 
         struct Shared;
 
@@ -142,7 +146,19 @@ namespace qc
         };
         std::vector<Mic> mics_;
 
-        // Audio tracks are Desktop, then Chat and Music when enabled, then one Mic track or one per microphone.
+        // Outputs recorded each on a track of its own in place of Desktop, Chat and Music: SteelSeries Sonar's
+        // channels, which it mixes together for the headset. QuickClip's own sound is taken out of each.
+        struct Channel
+        {
+            std::wstring deviceId;
+            std::string title;
+            std::unique_ptr<Canceller> canceller;
+            std::unique_ptr<AudioSource> output, self; // what plays on the output; QuickClip's own sound
+        };
+        std::vector<Channel> channels_;
+
+        // Audio tracks are Desktop, then Chat and Music when enabled (or a track per channel instead of those three),
+        // then one Mic track or one per microphone.
         struct Track
         {
             std::string title;
@@ -173,5 +189,6 @@ namespace qc
     };
 
     int EnumOutputs(QcOutput* outputs, int max);
-    int EnumMicrophones(QcAudioDevice* devices, int max);
+    /// Active audio outputs (speakers, headsets, virtual devices) or microphones.
+    int EnumAudioDevices(bool outputs, QcAudioDevice* devices, int max);
 }

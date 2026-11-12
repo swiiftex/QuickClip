@@ -26,6 +26,9 @@ internal static class CaptureEngine
         public IntPtr MicDeviceIds;
         public IntPtr MicTitles;
         public int MicSeparate;
+        public int ChannelCount;
+        public IntPtr ChannelDeviceIds;
+        public IntPtr ChannelTitles;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -89,14 +92,26 @@ internal static class CaptureEngine
         return buffer.Take(Math.Min(n, buffer.Length)).ToList();
     }
 
+    /// <summary>The active audio outputs; <see cref="AudioDevice.IsDefault"/> marks Windows' default one.</summary>
+    public static IReadOnlyList<AudioDevice> EnumSpeakers()
+    {
+        var buffer = new AudioDevice[64];
+        int n = qc_enum_speakers(buffer, buffer.Length);
+        return buffer.Take(Math.Min(n, buffer.Length)).ToList();
+    }
+
     /// <param name="aspect">Record only the centered part of the monitor with this shape ("16:9"), or "" for all of it.
     /// The engine works the area out itself, again after a display change.</param>
     /// <param name="outWidth">Size to scale the area to, or 0 for its native size.</param>
     /// <param name="mics">Microphones to record (see <see cref="Microphones.Plan"/>).</param>
     /// <param name="separateMics">Each microphone on its own track, named by its title, instead of all on one Mic track.</param>
+    /// <param name="channels">SteelSeries Sonar's channels, each recorded on a track of its own in place of Desktop, Chat and
+    /// Music (see <see cref="Sonar.Channels"/>), or none.</param>
     public static string? Start(string monitorDevice, string aspect, int fps, int outWidth, int outHeight, string encoder, int videoKbps,
-        int audioKbps, int bufferSeconds, bool cursor, bool splitChat, bool splitMusic, IReadOnlyList<Microphones.Input> mics, bool separateMics)
+        int audioKbps, int bufferSeconds, bool cursor, bool splitChat, bool splitMusic, IReadOnlyList<Microphones.Input> mics, bool separateMics,
+        IReadOnlyList<Sonar.Channel>? channels = null)
     {
+        channels ??= [];
         var strings = new List<IntPtr>();
         IntPtr Uni(string? s) { var p = s == null ? IntPtr.Zero : Marshal.StringToHGlobalUni(s); strings.Add(p); return p; }
         IntPtr UniArray(IEnumerable<string> items)
@@ -128,6 +143,9 @@ internal static class CaptureEngine
                 MicDeviceIds = UniArray(mics.Select(m => m.DeviceId)),
                 MicTitles = UniArray(mics.Select(m => m.Title)),
                 MicSeparate = separateMics ? 1 : 0,
+                ChannelCount = channels.Count,
+                ChannelDeviceIds = UniArray(channels.Select(c => c.DeviceId)),
+                ChannelTitles = UniArray(channels.Select(c => c.Title)),
             };
             strings.Add(config.Encoder);
             var error = new char[1024];
@@ -181,6 +199,7 @@ internal static class CaptureEngine
     [DllImport(Dll)] private static extern void qc_set_log(LogCallback callback);
     [DllImport(Dll)] private static extern int qc_enum_outputs([Out] Output[] outputs, int max);
     [DllImport(Dll)] private static extern int qc_enum_microphones([Out] AudioDevice[] devices, int max);
+    [DllImport(Dll)] private static extern int qc_enum_speakers([Out] AudioDevice[] devices, int max);
     [DllImport(Dll, CharSet = CharSet.Unicode)] private static extern int qc_start(ref Config config, [Out] char[] error, int errorLength);
     [DllImport(Dll)] private static extern void qc_stop();
     [DllImport(Dll)] private static extern void qc_restart_video();

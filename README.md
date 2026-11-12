@@ -17,6 +17,11 @@ and lets you trim, crop and remix the audio tracks before sharing.
 - **Separate audio tracks**: *Desktop* (everything you hear) and *Mic*. Several microphones can be recorded at once,
   mixed onto the one Mic track or each on a track of its own (named after the microphone). (Voice chat and music on
   tracks of their own are being worked on, and are off for now.)
+- **SteelSeries Sonar**: while Windows plays through Sonar, each of its channels (*Game*, *Chat*, *Media* and *Aux*,
+  whichever are on) is recorded on a track of its own in place of Desktop, without QuickClip's own sound. Turning Sonar
+  on or off, or a channel, is noticed within a couple of seconds (the replay buffer starts over then). Apps playing on
+  an output other than Sonar's aren't recorded while it's on; **Settings → Audio** can put Sonar back on the one Desktop
+  track. Sonar's microphone records as *Mic (Sonar)*.
 - **Quality presets** Low → Medium → High → Ultra → Indistinguishable, with **frame rate** (30–240 fps) and
   **output resolution** set independently.
 - **GPU encoding**, newest codec first: AV1 on NVIDIA/AMD/Intel cards that support it, then HEVC, then H.264.

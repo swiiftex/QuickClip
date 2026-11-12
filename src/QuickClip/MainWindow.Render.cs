@@ -187,7 +187,7 @@ public partial class MainWindow
             report.AppendLine($"  {page.GetType().Name} {page.Visibility} bounds {VisualTreeHelper.GetDescendantBounds(page)}");
         var r = Recorder.Instance;
         var stats = r.Stats();
-        report.AppendLine($"recorder running={r.IsRunning} error={r.Error} summary={r.State.Summary} chat=[{string.Join(",", r.State.ChatApps)}] music=[{string.Join(",", r.State.MusicApps)}]");
+        report.AppendLine($"recorder running={r.IsRunning} error={r.Error} summary={r.State.Summary} chat=[{string.Join(",", r.State.ChatApps)}] music=[{string.Join(",", r.State.MusicApps)}] sonar=[{string.Join(",", r.State.SonarChannels)}]");
         report.AppendLine($"stats {stats.Width}x{stats.Height} fps={stats.Fps} buffered={stats.BufferSeconds:0.0}s bytes={stats.BufferBytes} dropped={stats.DroppedFrames}");
         report.AppendLine($"hotkey active={App.Host?.HotkeyActive} status={RecStatus.Text}");
         File.WriteAllText(Path.Combine(dir, "report.txt"), report.ToString());

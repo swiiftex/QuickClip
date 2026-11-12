@@ -178,7 +178,8 @@ namespace qc
         }
     }
 
-    Canceller::Canceller(int rate, std::unique_ptr<AudioSink> out) : rate_(rate), out_(std::move(out)), everythingInput_(*this, 0) {}
+    Canceller::Canceller(int rate, std::unique_ptr<AudioSink> out, std::string name)
+        : name_(std::move(name)), rate_(rate), out_(std::move(out)), everythingInput_(*this, 0) {}
 
     AudioSink& Canceller::Reference(DWORD pid)
     {
@@ -308,13 +309,6 @@ namespace qc
     {
         ref.nextSearchUs = nowUs + 500'000;
         const Stream& app = ref.stream;
-        if (ref.sinceUs == 0) ref.sinceUs = nowUs;
-        if (!ref.waitLogged && nowUs - ref.sinceUs > 5'000'000)
-        {
-            ref.waitLogged = true;
-            Log("desktop: still looking for process %lu's sound after 5 s (%.1f s of it held, %.1f s of everything)", ref.pid,
-                static_cast<double>(app.End() - app.base) / rate_, static_cast<double>(everything_.End() - everything_.base) / rate_);
-        }
         if (app.anchorIndex < 0 || everything_.anchorIndex < 0) return;
         // The latest second of the app's sound that everything's capture has caught up with, give or take 100 ms around
         // where the timestamps put it.
@@ -325,6 +319,14 @@ namespace qc
         double energy = 0;
         for (float v : Mono(app, j0, j1)) energy += static_cast<double>(v) * v;
         if (energy / static_cast<double>(j1 - j0) < 1e-12) return; // silent: nothing to find (or take out)
+        // Waiting counts from when the app first has sound to find.
+        if (ref.sinceUs == 0) ref.sinceUs = nowUs;
+        if (!ref.waitLogged && nowUs - ref.sinceUs > 5'000'000)
+        {
+            ref.waitLogged = true;
+            Log("%s: still looking for process %lu's sound after 5 s of it (%.1f s of it held, %.1f s of everything)", name_.c_str(),
+                ref.pid, static_cast<double>(app.End() - app.base) / rate_, static_cast<double>(everything_.End() - everything_.base) / rate_);
+        }
 
         // Compare changes from frame to frame across the whole ±100 ms: they pin down the exact frame, and stand out even
         // under much louder other sound.
@@ -342,12 +344,12 @@ namespace qc
             ref.nextCheckUs = nowUs + 2'000'000;
             ref.failureLogged = ref.waitLogged = false;
             ref.sinceUs = 0;
-            Log("desktop: found process %lu's sound in it (%.2f ms from the timestamps), taking it out", ref.pid,
+            Log("%s: found process %lu's sound in it (%.2f ms from the timestamps), taking it out", name_.c_str(), ref.pid,
                 (best - guess) * 1000.0 / rate_);
         }
         else if (!ref.failureLogged)
         {
-            Log("desktop: process %lu's sound isn't matched in it yet (%.2f)", ref.pid, match);
+            Log("%s: process %lu's sound isn't matched in it yet (%.2f)", name_.c_str(), ref.pid, match);
             ref.failureLogged = true;
         }
     }
@@ -369,12 +371,12 @@ namespace qc
             double m = Match(app, j0, j1, d);
             if (m > 0.8 && m < 1.2)
             {
-                Log("desktop: process %lu's sound moved %lld frames; following it", ref.pid, static_cast<long long>(d - ref.offset));
+                Log("%s: process %lu's sound moved %lld frames; following it", name_.c_str(), ref.pid, static_cast<long long>(d - ref.offset));
                 ref.offset = d;
                 return;
             }
         }
-        Log("desktop: lost process %lu's sound in it (%.2f); finding it again", ref.pid, match);
+        Log("%s: lost process %lu's sound in it (%.2f); finding it again", name_.c_str(), ref.pid, match);
         ref.locked = false;
         ref.nextSearchUs = nowUs;
     }
@@ -493,14 +495,15 @@ namespace qc
             return S_OK;
         }
 
-        HRESULT ActivateMicrophone(const std::wstring& deviceId, ComPtr<IAudioClient>& client)
+        /// A device by its id, or the default one of `flow` for an empty id.
+        HRESULT ActivateDevice(EDataFlow flow, const std::wstring& deviceId, ComPtr<IAudioClient>& client)
         {
             ComPtr<IMMDeviceEnumerator> enumerator;
             HRESULT hr = CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL, IID_PPV_ARGS(&enumerator));
             if (FAILED(hr)) return hr;
             ComPtr<IMMDevice> device;
             hr = deviceId.empty()
-                ? enumerator->GetDefaultAudioEndpoint(eCapture, eConsole, &device)
+                ? enumerator->GetDefaultAudioEndpoint(flow, eConsole, &device)
                 : enumerator->GetDevice(deviceId.c_str(), &device);
             if (FAILED(hr)) return hr;
             return device->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr, &client);
@@ -508,13 +511,7 @@ namespace qc
 
         HRESULT ActivateDefaultOutput(ComPtr<IAudioClient>& client)
         {
-            ComPtr<IMMDeviceEnumerator> enumerator;
-            HRESULT hr = CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL, IID_PPV_ARGS(&enumerator));
-            if (FAILED(hr)) return hr;
-            ComPtr<IMMDevice> device;
-            hr = enumerator->GetDefaultAudioEndpoint(eRender, eConsole, &device);
-            if (FAILED(hr)) return hr;
-            return device->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr, &client);
+            return ActivateDevice(eRender, L"", client);
         }
 
         // Lets tests exercise the older-Windows path on a machine that has per-app capture.
@@ -537,13 +534,13 @@ namespace qc
         return supported && !ProcessLoopbackDisabled();
     }
 
-    int DefaultOutputRate()
+    int OutputRate(const std::wstring& deviceId)
     {
         HRESULT init = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
         int rate = SampleRate;
         ComPtr<IAudioClient> client;
         WAVEFORMATEX* mix = nullptr;
-        if (SUCCEEDED(ActivateDefaultOutput(client)) && SUCCEEDED(client->GetMixFormat(&mix)) && mix)
+        if (SUCCEEDED(ActivateDevice(eRender, deviceId, client)) && SUCCEEDED(client->GetMixFormat(&mix)) && mix)
         {
             if (mix->nSamplesPerSec >= 8000 && mix->nSamplesPerSec <= 384000) rate = static_cast<int>(mix->nSamplesPerSec);
             CoTaskMemFree(mix);
@@ -578,8 +575,9 @@ namespace qc
         while (WaitForSingleObject(stop_, 0) != WAIT_OBJECT_0)
         {
             HRESULT hr = CaptureOnce();
-            if (FAILED(hr) && hr != lastError && kind_ == SourceKind::Microphone)
-                Log("microphone %s stopped: 0x%08lx", deviceId_.empty() ? "(default)" : Narrow(deviceId_).c_str(), static_cast<unsigned long>(hr));
+            if (FAILED(hr) && hr != lastError && (kind_ == SourceKind::Microphone || kind_ == SourceKind::Output))
+                Log("%s %s stopped: 0x%08lx", kind_ == SourceKind::Output ? "output" : "microphone",
+                    deviceId_.empty() ? "(default)" : Narrow(deviceId_).c_str(), static_cast<unsigned long>(hr));
             else if (FAILED(hr) && hr != lastError)
                 Log("audio source (kind %d, pid %lu) stopped: 0x%08lx", static_cast<int>(kind_), pid_, static_cast<unsigned long>(hr));
             lastError = hr;
@@ -595,7 +593,9 @@ namespace qc
         ComPtr<IAudioClient> client;
         HRESULT hr;
         if (kind_ == SourceKind::Microphone)
-            hr = ActivateMicrophone(deviceId_, client);
+            hr = ActivateDevice(eCapture, deviceId_, client);
+        else if (kind_ == SourceKind::Output)
+            hr = ActivateDevice(eRender, deviceId_, client); // recorded by loopback
         else
         {
             hr = PerAppCaptureAvailable() ? ActivateProcessLoopback(pid_, kind_ == SourceKind::ProcessInclude, client) : E_NOTIMPL;
@@ -713,21 +713,22 @@ namespace qc
         }).detach();
     }
 
-    int EnumMicrophones(QcAudioDevice* devices, int max)
+    int EnumAudioDevices(bool outputs, QcAudioDevice* devices, int max)
     {
         // PKEY_Device_FriendlyName
         static const PROPERTYKEY friendlyName = { { 0xa45c254e, 0xdf1c, 0x4efd, { 0x80, 0x20, 0x67, 0xd1, 0x46, 0xa8, 0x50, 0xe0 } }, 14 };
+        const EDataFlow flow = outputs ? eRender : eCapture;
         HRESULT init = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
         int count = 0;
         ComPtr<IMMDeviceEnumerator> enumerator;
         ComPtr<IMMDeviceCollection> collection;
         if (SUCCEEDED(CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL, IID_PPV_ARGS(&enumerator)))
-            && SUCCEEDED(enumerator->EnumAudioEndpoints(eCapture, DEVICE_STATE_ACTIVE, &collection)))
+            && SUCCEEDED(enumerator->EnumAudioEndpoints(flow, DEVICE_STATE_ACTIVE, &collection)))
         {
             std::wstring defaultId;
             ComPtr<IMMDevice> def;
             LPWSTR id = nullptr;
-            if (SUCCEEDED(enumerator->GetDefaultAudioEndpoint(eCapture, eConsole, &def)) && SUCCEEDED(def->GetId(&id)))
+            if (SUCCEEDED(enumerator->GetDefaultAudioEndpoint(flow, eConsole, &def)) && SUCCEEDED(def->GetId(&id)))
             {
                 defaultId = id;
                 CoTaskMemFree(id);

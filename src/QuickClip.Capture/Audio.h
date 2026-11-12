@@ -82,13 +82,16 @@ namespace qc
     };
 
     /// Desktop as everything Windows plays (one capture) with other apps' audio taken out sample for sample, since
-    /// Windows can leave only one app out of a capture. Every capture comes from the same audio engine at the
-    /// output's own rate, so an app's samples are identical in each, just at a different offset that's found by
-    /// matching the app's sound in both, and checked as it goes on. Until it's found, that app stays in.
+    /// Windows can leave only one app out of a capture; or a SteelSeries Sonar channel (everything played on its output)
+    /// with QuickClip's own sound taken out, since an output's capture can't leave any app out. Every capture comes from
+    /// the same audio engine at the output's own rate, so an app's samples are identical in each, just at a different
+    /// offset that's found by matching the app's sound in both, and checked as it goes on. Until it's found, that app
+    /// stays in.
     class Canceller
     {
     public:
-        Canceller(int rate, std::unique_ptr<AudioSink> out);
+        /// `name`: the track's, for the log.
+        Canceller(int rate, std::unique_ptr<AudioSink> out, std::string name);
         Canceller(const Canceller&) = delete;
         Canceller& operator=(const Canceller&) = delete;
 
@@ -145,6 +148,7 @@ namespace qc
         int64_t TimeToIndex(const Stream& s, int64_t timeUs) const;
         int64_t TimeOf(const Stream& s, int64_t index) const;
 
+        const std::string name_;
         const int rate_;
         std::unique_ptr<AudioSink> out_;
         Input everythingInput_;
@@ -157,16 +161,20 @@ namespace qc
         std::map<DWORD, std::unique_ptr<Input>> inputs_;
     };
 
-    enum class SourceKind { ProcessInclude, ProcessExclude, Microphone };
+    /// What a capture records: an app's process tree, everything but one, a microphone, or everything played on one
+    /// output device (a SteelSeries Sonar channel).
+    enum class SourceKind { ProcessInclude, ProcessExclude, Microphone, Output };
 
     /// Whether Windows can capture single apps (Windows 11, or Windows 10 build 20348 and later). Without it,
     /// Desktop records everything the speakers play and the Chat and Music tracks stay silent.
     bool PerAppCaptureAvailable();
 
-    /// The default output's own sample rate, which per-app captures keep exactly when they're made at it.
-    int DefaultOutputRate();
+    /// An output's own sample rate (the default output's for an empty id), which per-app captures keep exactly when
+    /// they're made at it.
+    int OutputRate(const std::wstring& deviceId = L"");
 
-    /// One WASAPI capture stream at `rate` feeding a sink. Reconnects by itself if the device goes away.
+    /// One WASAPI capture stream at `rate` feeding a sink. Reconnects by itself if the device goes away. `deviceId`
+    /// is the microphone's (empty for the default one) or the output's.
     class AudioSource
     {
     public:

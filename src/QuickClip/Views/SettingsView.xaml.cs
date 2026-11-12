@@ -20,6 +20,7 @@ public partial class SettingsView : UserControl
     private readonly DispatcherTimer _restartTimer;
     private IReadOnlyList<MonitorInfo> _monitors = [];
     private IReadOnlyList<CaptureEngine.AudioDevice> _mics = [];
+    private IReadOnlyList<Sonar.Channel> _sonar = [];           // SteelSeries Sonar's channels, while Windows plays through it
     private readonly List<(ComboBox Combo, Button Remove)> _micRows = [];
     private IReadOnlySet<string> _encoders = new HashSet<string>();
     private bool _loading;
@@ -168,13 +169,13 @@ public partial class SettingsView : UserControl
             SplitChatCheck.IsChecked = s.SplitChatAudio;
             SplitMusicCheck.IsChecked = s.SplitMusicAudio;
             if (!AudioRouting.SeparateTracks)
-            {
                 foreach (var e in new FrameworkElement[] { SplitChatCheck, ChatText, SplitMusicCheck, MusicText }) e.Visibility = Visibility.Collapsed;
-                AudioHint.Text = "Clips get a Desktop track with everything you hear and a track for the microphone, so you can set their " +
-                                 "volumes or merge them when exporting.";
-            }
+            SonarCheck.IsChecked = s.SplitSonarChannels;
             MicCheck.IsChecked = s.RecordMic;
-            _mics = CaptureEngine.IsAvailable ? await Task.Run(() => { CaptureEngine.Initialize(); return CaptureEngine.EnumMicrophones(); }) : [];
+            (_mics, _sonar) = CaptureEngine.IsAvailable
+                ? await Task.Run(() => { CaptureEngine.Initialize(); return (CaptureEngine.EnumMicrophones(), FindSonar()); })
+                : ([], []);
+            ShowSonar();
             ShowMics(s.MicDeviceIds.Count > 0 ? s.MicDeviceIds : [""]);
             MicTracksCombo.ItemsSource = new List<Choice> { new("All on one Mic track", false), new("A track for each microphone", true) };
             Select(MicTracksCombo, s.SeparateMicTracks);
@@ -377,6 +378,8 @@ public partial class SettingsView : UserControl
         ShowGameWindowState();
         s.SplitChatAudio = SplitChatCheck.IsChecked == true;
         s.SplitMusicAudio = SplitMusicCheck.IsChecked == true;
+        s.SplitSonarChannels = SonarCheck.IsChecked == true;
+        ShowSonar();
         s.RecordMic = MicCheck.IsChecked == true;
         s.MicDeviceIds = SelectedMics;
         s.SeparateMicTracks = MicTracksCombo.SelectedItem is Choice { Value: true };
@@ -439,15 +442,57 @@ public partial class SettingsView : UserControl
         string encoderId = s.RecordEncoder.Length > 0 ? s.RecordEncoder : RecordingPresets.DefaultEncoder(_encoders)?.Id ?? "h264_amf";
         string family = VideoEncoders.Find(encoderId)?.Family ?? "h264";
         int kbps = RecordingPresets.VideoKbps(s.RecordQuality, w, h, s.RecordFps, family);
-        int tracks = RecordingPresets.AudioTrackCount(s);
+        int tracks = RecordingPresets.AudioTrackCount(s, s.SplitSonarChannels ? _sonar.Count : 0);
         long ram = RecordingPresets.EstimateRamBytes(kbps, tracks, s.BufferSeconds);
         long clip = (long)((kbps + tracks * RecordingPresets.AudioKbps) * 1000.0 / 8 * s.BufferSeconds);
         BitrateText.Text = $"≈ {kbps / 1000.0:0.#} Mbps";
         RamText.Text = $"The replay buffer needs about {Fmt.Size(ram)} of memory. A full-length clip is about {Fmt.Size(clip)} on disk.";
     }
 
-    private void OnRecorderState(RecorderState state) => Dispatcher.BeginInvoke(() =>
+    private static IReadOnlyList<Sonar.Channel> FindSonar()
     {
+        try
+        {
+            return Sonar.Channels(CaptureEngine.EnumSpeakers());
+        }
+        catch (Exception ex)
+        {
+            Log.Write("Listing the audio outputs failed: " + ex.Message);
+            return [];
+        }
+    }
+
+    /// <summary>The Sonar choice, shown while Windows plays through SteelSeries Sonar, and what the tracks are then.</summary>
+    private void ShowSonar()
+    {
+        bool on = _sonar.Count > 0, split = on && SonarCheck.IsChecked == true;
+        SonarCheck.Visibility = SonarText.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
+        string channels = string.Join(", ", _sonar.Select(c => c.Title));
+        SonarText.Text = split
+            ? $"SteelSeries Sonar is on: clips get a track for each of its channels ({channels}) in place of Desktop. " +
+              "Apps playing on an output other than Sonar's aren't recorded."
+            : $"SteelSeries Sonar is on ({channels}): everything it plays is on the Desktop track.";
+        AudioHint.Text = split
+            ? "Clips get a track for each Sonar channel and a track for the microphone, so you can set their volumes or merge them when exporting."
+            : AudioRouting.SeparateTracks
+                ? "Clips get a separate track for each source, named in the editor, so you can set their volumes or merge them when exporting."
+                : "Clips get a Desktop track with everything you hear and a track for the microphone, so you can set their " +
+                  "volumes or merge them when exporting.";
+    }
+
+    private void OnRecorderState(RecorderState state) => Dispatcher.BeginInvoke(async () =>
+    {
+        // Sonar may have been turned on or off (which starts recording again).
+        if (CaptureEngine.IsAvailable && IsLoaded)
+        {
+            var sonar = await Task.Run(FindSonar);
+            if (!sonar.SequenceEqual(_sonar))
+            {
+                _sonar = sonar;
+                ShowSonar();
+                UpdateEstimates();
+            }
+        }
         ChatText.Text = state.ChatApps.Count > 0
             ? $"Detected now: {string.Join(", ", state.ChatApps)}"
             : "No voice chat app is running right now.";

@@ -7,7 +7,9 @@ namespace QuickClip.Recording;
 public sealed record SavedClip(string Path, string Folder, int Seconds);
 
 /// <summary>What the recorder is currently doing, for the UI.</summary>
-public sealed record RecorderState(bool Running, string? Error, string Summary, IReadOnlyList<string> ChatApps, IReadOnlyList<string> MusicApps);
+/// <param name="SonarChannels">SteelSeries Sonar's channels being recorded each on a track of its own, if any.</param>
+public sealed record RecorderState(bool Running, string? Error, string Summary, IReadOnlyList<string> ChatApps, IReadOnlyList<string> MusicApps,
+    IReadOnlyList<string> SonarChannels);
 
 /// <summary>Instant-replay service: keeps the capture engine running per the settings and saves clips on demand.</summary>
 internal sealed class Recorder
@@ -24,6 +26,7 @@ internal sealed class Recorder
     private string? _routing;
     private readonly Dictionary<uint, string> _audioProcesses = [];  // running processes that have had audio
     private string _family = "h264";
+    private IReadOnlyList<Sonar.Channel> _sonar = [];   // SteelSeries Sonar's channels being recorded, in place of Desktop
     private IntPtr _captureWindow;                       // the game window being recorded, or zero for the monitor
     private (int Width, int Height) _captureWindowSize;
 
@@ -37,7 +40,7 @@ internal sealed class Recorder
     public event Action<SavedClip>? ClipSaved;
     public event Action<string>? SaveFailed;
 
-    public RecorderState State => new(IsRunning, Error, _summary, _chatApps, _musicApps);
+    public RecorderState State => new(IsRunning, Error, _summary, _chatApps, _musicApps, [.. _sonar.Select(c => c.Title)]);
 
     private Recorder()
     {
@@ -115,12 +118,17 @@ internal sealed class Recorder
             VideoKbps = RecordingPresets.VideoKbps(s.RecordQuality, w, h, s.RecordFps, family);
             var mics = s.RecordMic ? Microphones.Plan(s.MicDeviceIds, CaptureEngine.EnumMicrophones()) : [];
             bool separateMics = s.SeparateMicTracks && mics.Count > 1;
-            bool splitChat = RecordingPresets.SplitChat(s), splitMusic = RecordingPresets.SplitMusic(s);
-            AudioTracks = 1 + (splitChat ? 1 : 0) + (splitMusic ? 1 : 0) + (separateMics ? mics.Count : Math.Min(mics.Count, 1));
+            var sonar = SonarChannels(s);
+            bool splitChat = sonar.Count == 0 && RecordingPresets.SplitChat(s), splitMusic = sonar.Count == 0 && RecordingPresets.SplitMusic(s);
+            AudioTracks = (sonar.Count > 0 ? sonar.Count : 1 + (splitChat ? 1 : 0) + (splitMusic ? 1 : 0)) +
+                          (separateMics ? mics.Count : Math.Min(mics.Count, 1));
 
             Error = CaptureEngine.Start(monitor.DeviceName, aspect, s.RecordFps, scaled ? w : 0, scaled ? h : 0, encoder, VideoKbps,
-                RecordingPresets.AudioKbps, s.BufferSeconds, s.CaptureCursor, splitChat, splitMusic, mics, separateMics);
+                RecordingPresets.AudioKbps, s.BufferSeconds, s.CaptureCursor, splitChat, splitMusic, mics, separateMics, sonar);
             if (Error != null) return;
+            _sonar = sonar;
+            if (sonar.Count > 0)
+                Log.Write($"SteelSeries Sonar is on: recording its channels on tracks of their own: {string.Join(", ", sonar.Select(c => c.Title))}");
             if (mics.Count > 0)
                 Log.Write($"Recording {mics.Count} microphone{(mics.Count == 1 ? "" : "s")}{(separateMics ? " on separate tracks" : "")}: " +
                           string.Join(", ", mics.Select(m => m.DeviceId == "" ? $"{m.Title} (Windows default)" : m.Title)));
@@ -132,7 +140,7 @@ internal sealed class Recorder
             _routing = null;
             lock (_audioProcesses) _audioProcesses.Clear();
             _summary = $"{h}p{s.RecordFps}{(cropped ? $" {aspect}" : "")} · {family.ToUpperInvariant()} · {RecordingPresets.Label(s.RecordQuality)}" +
-                       (s.PreferGameWindow ? " · game window" : "");
+                       (s.PreferGameWindow ? " · game window" : "") + (sonar.Count > 0 ? " · Sonar" : "");
             Log.Write($"Recording {monitor.DeviceName}{(cropped ? $" ({area.Width}x{area.Height} at {area.X},{area.Y})" : "")} at {w}x{h}@{s.RecordFps} " +
                       $"with {encoder}, {VideoKbps} kbps, {s.BufferSeconds}s buffer");
             _poll = new Timer(_ => Poll(), null, 0, 2000);
@@ -151,6 +159,38 @@ internal sealed class Recorder
         if (IsRunning) CaptureEngine.Stop();
         IsRunning = false;
         _summary = "";
+        _sonar = [];
+    }
+
+    /// <summary>SteelSeries Sonar's channels to record each on a track of its own: while Windows plays through Sonar, unless
+    /// that's turned off.</summary>
+    private static IReadOnlyList<Sonar.Channel> SonarChannels(AppSettings s)
+    {
+        if (!s.SplitSonarChannels) return [];
+        try
+        {
+            return Sonar.Channels(CaptureEngine.EnumSpeakers());
+        }
+        catch (Exception ex)
+        {
+            Log.Write("Listing the audio outputs failed: " + ex.Message);
+            return [];
+        }
+    }
+
+    /// <summary>
+    /// Starts recording again with the tracks Sonar now needs when it was turned on or off, or a channel was added or
+    /// taken away (Sonar's Aux), since a recording's tracks are set when it starts. The replay buffer starts over.
+    /// </summary>
+    private bool SonarChanged(AppSettings s)
+    {
+        var sonar = SonarChannels(s);
+        if (sonar.SequenceEqual(_sonar)) return false;
+        Log.Write(sonar.Count == 0 ? "SteelSeries Sonar was turned off (or isn't Windows' output any more): recording Desktop again"
+            : $"SteelSeries Sonar's channels changed to {string.Join(", ", sonar.Select(c => c.Title))}: starting recording again");
+        _sonar = sonar; // until recording has started again, so this poll's next round doesn't start it twice
+        _ = ApplySettingsAsync();
+        return true;
     }
 
     private void Poll()
@@ -158,14 +198,19 @@ internal sealed class Recorder
         try
         {
             var s = AppSettings.Current;
+            if (SonarChanged(s)) return;
             var processes = ProcessScan.Snapshot();
             var chat = ChatApps.Find(processes);
             var music = MusicApps.Find(processes);
-            List<uint> chatPids = RecordingPresets.SplitChat(s) ? [.. chat.Select(c => c.Pid)] : [];
-            List<uint> musicPids = RecordingPresets.SplitMusic(s) ? [.. music.Select(m => m.Pid)] : [];
-            var plan = PlanAudio(processes, chatPids, musicPids);
-            CaptureEngine.SetAudioProcesses(plan);
-            LogRouting(processes, plan);
+            if (_sonar.Count == 0)
+            {
+                // Sonar's channels are recorded whichever apps play on them.
+                List<uint> chatPids = RecordingPresets.SplitChat(s) ? [.. chat.Select(c => c.Pid)] : [];
+                List<uint> musicPids = RecordingPresets.SplitMusic(s) ? [.. music.Select(m => m.Pid)] : [];
+                var plan = PlanAudio(processes, chatPids, musicPids);
+                CaptureEngine.SetAudioProcesses(plan);
+                LogRouting(processes, plan);
+            }
             _games.Poll();
             if (s.PreferGameWindow) UpdateCaptureWindow(s);
 

@@ -762,6 +762,16 @@ namespace qc
             const wchar_t* title = c.micTitles ? c.micTitles[i] : nullptr;
             mics_.push_back({ id ? id : L"", title && *title ? Narrow(title) : "Mic " + std::to_string(i + 1) });
         }
+        for (int i = 0; i < c.channelCount; i++)
+        {
+            const wchar_t* id = c.channelDeviceIds ? c.channelDeviceIds[i] : nullptr;
+            const wchar_t* title = c.channelTitles ? c.channelTitles[i] : nullptr;
+            if (!id || !*id) continue;
+            Channel channel;
+            channel.deviceId = id;
+            channel.title = title && *title ? Narrow(title) : "Channel " + std::to_string(i + 1);
+            channels_.push_back(std::move(channel));
+        }
         shared_->fps = std::clamp(c.fps, 10, 240);
         shared_->outWidth = c.outWidth & ~7;
         shared_->outHeight = c.outHeight & ~1;
@@ -791,9 +801,18 @@ namespace qc
             tracks_.push_back(std::move(track));
             return static_cast<int>(tracks_.size()) - 1;
         };
-        if (addTrack("Desktop") < 0) return false;
-        if (splitChat_ && (chatTrack_ = addTrack("Chat")) < 0) return false;
-        if (splitMusic_ && (musicTrack_ = addTrack("Music")) < 0) return false;
+        std::vector<int> channelTracks;
+        for (const auto& channel : channels_)
+        {
+            channelTracks.push_back(addTrack(channel.title.c_str()));
+            if (channelTracks.back() < 0) return false;
+        }
+        if (channels_.empty())
+        {
+            if (addTrack("Desktop") < 0) return false;
+            if (splitChat_ && (chatTrack_ = addTrack("Chat")) < 0) return false;
+            if (splitMusic_ && (musicTrack_ = addTrack("Music")) < 0) return false;
+        }
         // Microphones on one track are mixed together, each keeping its own place on the timeline.
         std::vector<int> micTracks;
         for (size_t i = 0; i < mics_.size(); i++)
@@ -811,10 +830,28 @@ namespace qc
             return false;
         }
 
-        nativeRate_ = DefaultOutputRate();
-        canceller_ = std::make_unique<Canceller>(nativeRate_, std::make_unique<MixerSink>(*tracks_[0]->mixer, nativeRate_));
-        // Until the app reports its chat and music apps: everything except QuickClip's own previews.
-        SetAudioProcesses(GetCurrentProcessId(), {}, {}, {}, {});
+        if (channels_.empty())
+        {
+            nativeRate_ = OutputRate();
+            canceller_ = std::make_unique<Canceller>(nativeRate_, std::make_unique<MixerSink>(*tracks_[0]->mixer, nativeRate_), "desktop");
+            // Until the app reports its chat and music apps: everything except QuickClip's own previews.
+            SetAudioProcesses(GetCurrentProcessId(), {}, {}, {}, {});
+        }
+        for (size_t i = 0; i < channels_.size(); i++)
+        {
+            // Everything played on the output, less QuickClip's own sound (its previews and the clip-saved sound), at
+            // the output's own rate, where QuickClip's sound is the same in both captures.
+            Channel& channel = channels_[i];
+            int rate = OutputRate(channel.deviceId);
+            auto& mixer = *tracks_[static_cast<size_t>(channelTracks[i])]->mixer;
+            channel.canceller = std::make_unique<Canceller>(rate, std::make_unique<MixerSink>(mixer, rate), channel.title);
+            channel.output = std::make_unique<AudioSource>(SourceKind::Output, 0, channel.deviceId, rate,
+                std::make_unique<TeeSink>(nullptr, &channel.canceller->Everything()));
+            if (PerAppCaptureAvailable())
+                channel.self = std::make_unique<AudioSource>(SourceKind::ProcessInclude, GetCurrentProcessId(), L"", rate,
+                    std::make_unique<TeeSink>(nullptr, &channel.canceller->Reference(GetCurrentProcessId())));
+            Log("recording the output \"%s\" at %d Hz on a track of its own", channel.title.c_str(), rate);
+        }
         for (size_t i = 0; i < mics_.size(); i++)
             micSources_.push_back(std::make_unique<AudioSource>(SourceKind::Microphone, 0, mics_[i].deviceId, SampleRate,
                 std::make_unique<MixerSink>(*tracks_[static_cast<size_t>(micTracks[i])]->mixer, SampleRate)));
@@ -902,7 +939,13 @@ namespace qc
             sources_.clear();
         }
         micSources_.clear();
-        canceller_.reset(); // after the sources that feed it
+        for (auto& channel : channels_)
+        {
+            channel.output.reset();
+            channel.self.reset();
+        }
+        channels_.clear();      // the cancellers after the sources that feed them
+        canceller_.reset();
         // A capture call returns with the next frame; with a frozen screen that may take a while.
         for (int i = 0; i < 150 && shared_->runningVideoThreads > 0; i++) Sleep(20);
         if (videoThread_.joinable())
@@ -915,6 +958,7 @@ namespace qc
     void Engine::SetAudioProcesses(DWORD desktopExclude, const std::vector<DWORD>& desktopInclude,
         const std::vector<DWORD>& chat, const std::vector<DWORD>& music, const std::vector<DWORD>& desktopSubtract)
     {
+        if (!channels_.empty()) return; // the channels' outputs are recorded whichever apps play on them
         std::set<SourceKey> wanted;
         bool subtracting = false;
         if (PerAppCaptureAvailable())
@@ -971,6 +1015,14 @@ namespace qc
         }
     }
 
+    int64_t Engine::TestSubtractOffset(DWORD pid)
+    {
+        if (canceller_) return canceller_->OffsetOf(pid);
+        for (auto& channel : channels_)
+            if (int64_t offset = channel.canceller->OffsetOf(pid); offset != INT64_MIN) return offset;
+        return INT64_MIN;
+    }
+
     void Engine::AudioLoop()
     {
         std::vector<float> samples;
@@ -978,7 +1030,8 @@ namespace qc
         while (!shared_->stop)
         {
             Sleep(20);
-            canceller_->Process();
+            if (canceller_) canceller_->Process();
+            for (auto& channel : channels_) channel.canceller->Process();
             int64_t upTo = (NowUs() - shared_->t0) * SampleRate / 1000000 - latency;
             for (size_t i = 0; i < tracks_.size(); i++)
             {

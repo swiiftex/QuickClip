@@ -30,6 +30,7 @@ internal sealed class AppSettings
     public bool PreferGameWindow { get; set; }                   // record a running game by its window (the aspect ratio is then for the desktop)
     public bool SplitChatAudio { get; set; } = true;
     public bool SplitMusicAudio { get; set; } = true;
+    public bool SplitSonarChannels { get; set; } = true;        // SteelSeries Sonar's channels each on a track while Windows plays through it
     public bool RecordMic { get; set; } = true;
     public List<string> MicDeviceIds { get; set; } = [""];      // empty id = Windows default
     public bool SeparateMicTracks { get; set; }                 // a track per microphone instead of one shared Mic track

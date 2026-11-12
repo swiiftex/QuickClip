@@ -120,7 +120,13 @@ extern "C"
 
     __declspec(dllexport) int qc_enum_microphones(QcAudioDevice* devices, int max)
     {
-        return qc::EnumMicrophones(devices, max);
+        return qc::EnumAudioDevices(false, devices, max);
+    }
+
+    /// Active audio outputs, for SteelSeries Sonar's channels.
+    __declspec(dllexport) int qc_enum_speakers(QcAudioDevice* devices, int max)
+    {
+        return qc::EnumAudioDevices(true, devices, max);
     }
 
     __declspec(dllexport) int qc_start(const QcConfig* config, wchar_t* error, int errorLength)

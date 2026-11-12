@@ -91,9 +91,12 @@ internal static class RecordingPresets
         return ((int)Math.Round(areaWidth * s / 8) * 8, (int)Math.Round(areaHeight * s / 2) * 2);
     }
 
-    /// <summary>Desktop, plus Chat, Music and the microphones' tracks when they're on.</summary>
-    public static int AudioTrackCount(AppSettings s) =>
-        1 + (SplitChat(s) ? 1 : 0) + (SplitMusic(s) ? 1 : 0) + Microphones.TrackCount(s);
+    /// <summary>
+    /// Desktop, plus Chat, Music and the microphones' tracks when they're on; or a track for each of SteelSeries Sonar's
+    /// <paramref name="sonarChannels"/> in place of Desktop, Chat and Music.
+    /// </summary>
+    public static int AudioTrackCount(AppSettings s, int sonarChannels = 0) =>
+        (sonarChannels > 0 ? sonarChannels : 1 + (SplitChat(s) ? 1 : 0) + (SplitMusic(s) ? 1 : 0)) + Microphones.TrackCount(s);
 
     public static bool SplitChat(AppSettings s) => AudioRouting.SeparateTracks && s.SplitChatAudio;
     public static bool SplitMusic(AppSettings s) => AudioRouting.SeparateTracks && s.SplitMusicAudio;

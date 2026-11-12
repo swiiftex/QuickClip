@@ -174,6 +174,10 @@
                         <TextBlock Text="Put music on its own track (Spotify, TIDAL, Apple Music, Deezer, Amazon Music and more)" TextWrapping="Wrap" />
                     </CheckBox>
                     <TextBlock x:Name="MusicText" Margin="28,4,0,0" Style="{StaticResource Hint}" />
+                    <CheckBox x:Name="SonarCheck" Margin="0,12,0,0" Visibility="Collapsed" Checked="Changed" Unchecked="Changed">
+                        <TextBlock Text="Put each SteelSeries Sonar channel on its own track (Game, Chat, Media and Aux)" TextWrapping="Wrap" />
+                    </CheckBox>
+                    <TextBlock x:Name="SonarText" Margin="28,4,0,0" Style="{StaticResource Hint}" TextWrapping="Wrap" Visibility="Collapsed" />
 
                     <Grid Style="{StaticResource Row}">
                         <Grid.ColumnDefinitions>

@@ -160,6 +160,81 @@ public sealed class MicrophoneTests
     }
 }
 
+public sealed class SonarTests
+{
+    private const string Driver = " (SteelSeries Sonar Virtual Audio Device)";
+
+    // The outputs of a PC with Sonar on, as Windows names them; Sonar's Gaming output is Windows' default.
+    private static readonly CaptureEngine.AudioDevice[] Outputs =
+    [
+        new() { Id = "media", Name = "SteelSeries Sonar - Media" + Driver },
+        new() { Id = "headset", Name = "Headphones (2- Arctis Nova Pro Wireless)" },
+        new() { Id = "chat", Name = "SteelSeries Sonar - Chat" + Driver },
+        new() { Id = "monitor", Name = "2 - 49M2C8900 (2- AMD High Definition Audio Device)" },
+        new() { Id = "sonar-mic", Name = "SteelSeries Sonar - Microphone" + Driver },
+        new() { Id = "stream", Name = "SteelSeries Sonar - Stream" + Driver },
+        new() { Id = "gaming", Name = "SteelSeries Sonar - Gaming" + Driver, IsDefault = 1 },
+        new() { Id = "aux", Name = "SteelSeries Sonar - Aux" + Driver },
+    ];
+
+    [Fact]
+    public void Each_channel_is_recorded_in_the_order_of_Sonars_mixer()
+    {
+        Assert.Equal([new("gaming", "Game"), new("chat", "Chat"), new("media", "Media"), new("aux", "Aux")], Sonar.Channels(Outputs));
+    }
+
+    [Fact]
+    public void Nothing_is_recorded_by_channel_unless_Windows_plays_through_Sonar()
+    {
+        // Sonar is off, or Windows' output was set to the headset itself: apps then play there, which Desktop records.
+        var headset = Outputs.Select(o => o with { IsDefault = o.Id == "headset" ? 1 : 0 }).ToList();
+        Assert.Empty(Sonar.Channels(headset));
+        Assert.Empty(Sonar.Channels(Outputs.Where(o => o.Id is "headset" or "monitor").ToList()));
+        Assert.Empty(Sonar.Channels([]));
+    }
+
+    [Fact]
+    public void Any_of_Sonars_channels_can_be_the_default()
+    {
+        var media = Outputs.Select(o => o with { IsDefault = o.Id == "media" ? 1 : 0 }).ToList();
+        Assert.Equal(["Game", "Chat", "Media", "Aux"], Sonar.Channels(media).Select(c => c.Title));
+    }
+
+    [Theory]
+    [InlineData("SteelSeries Sonar - Gaming" + Driver, "Game")]
+    [InlineData("SteelSeries Sonar - Chat" + Driver, "Chat")]
+    [InlineData("SteelSeries Sonar - Aux" + Driver, "Aux")]
+    [InlineData("Sonar - media" + Driver, "Media")]
+    [InlineData("Game audio" + Driver, "Game audio")]           // renamed in Windows' sound settings
+    [InlineData("SteelSeries Sonar - Microphone" + Driver, null)] // Sonar's microphone, not a channel
+    [InlineData("SteelSeries Sonar - Stream" + Driver, null)]     // the stream mix: everything again
+    [InlineData("Headphones (2- Arctis Nova Pro Wireless)", null)]
+    [InlineData("SteelSeries Sonar - Gaming", null)]              // not Sonar's driver
+    [InlineData("", null)]
+    public void Channels_are_named_as_Sonar_names_them(string output, string? channel) =>
+        Assert.Equal(channel, Sonar.ChannelName(output));
+
+    [Fact]
+    public void Sonars_microphone_records_as_Mic_Sonar()
+    {
+        CaptureEngine.AudioDevice[] mics =
+        [
+            new() { Id = "sonar", Name = "SteelSeries Sonar - Microphone" + Driver, IsDefault = 1 },
+            new() { Id = "headset", Name = "Microphone (2- Arctis Nova Pro Wireless)" },
+        ];
+        Assert.Equal(["Mic (Sonar)", "Mic (2- Arctis Nova Pro Wireless)"], Microphones.Plan(["", "headset"], mics).Select(m => m.Title));
+    }
+
+    [Fact]
+    public void Sonars_channels_take_the_place_of_Desktop_Chat_and_Music()
+    {
+        var s = new AppSettings { RecordMic = true, MicDeviceIds = [""] };
+        Assert.Equal(4 + 1, RecordingPresets.AudioTrackCount(s, sonarChannels: 4));
+        Assert.Equal(RecordingPresets.AudioTrackCount(s), RecordingPresets.AudioTrackCount(s, sonarChannels: 0));
+        Assert.True(AppSettings.Parse("{}").SplitSonarChannels);
+    }
+}
+
 public sealed class GalleryLogicTests
 {
     [Theory]
